@@ -147,6 +147,7 @@ def _process(job: dict):
         detected  = info.language
         all_segs  = []
         started   = time.monotonic()
+        last_hb   = time.monotonic()
 
         for seg in segments_gen:
             all_segs.append(seg)
@@ -155,6 +156,10 @@ def _process(job: dict):
             speed   = round(seg.end / elapsed, 2) if elapsed > 1 and seg.end > 0 else None
             eta     = max(0, round((duration - seg.end) / speed)) if (speed and duration and pct >= 0) else None
             _update(job_id, progress=pct, language=detected, speed=speed, eta=eta)
+            # Keep heartbeat alive during long transcriptions
+            if time.monotonic() - last_hb > 4:
+                _heartbeat(job_id)
+                last_hb = time.monotonic()
 
         ext      = "txt" if out_format == "txt" else out_format
         out_path = OUTPUT_DIR / f"{job_id}.{ext}"
