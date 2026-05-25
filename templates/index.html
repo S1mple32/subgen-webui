@@ -230,32 +230,277 @@
     nav { padding: 0 12px; }
     .nav-btn { padding: 6px 10px; font-size: 13px; }
   }
+
+  /* Studio dashboard theme */
+  :root {
+    --bg: #07090c;
+    --surface: #0f141a;
+    --surface2: #141b23;
+    --surface3: #1b2530;
+    --border: #222d39;
+    --text: #f4f2ef;
+    --muted: #8993a0;
+    --accent: #f28a2a;
+    --accent-dim: #d96f13;
+    --green: #f28a2a;
+    --yellow: #ffb44d;
+    --blue: #f28a2a;
+    --radius: 16px;
+  }
+  body {
+    background:
+      radial-gradient(circle at 47% 0%, rgba(242,138,42,0.07), transparent 34%),
+      var(--bg);
+    color: var(--text);
+  }
+  nav {
+    position: fixed; inset: 0 auto 0 0; width: 232px; height: 100vh;
+    display: flex; flex-direction: column; align-items: stretch; gap: 8px;
+    padding: 32px 18px 22px;
+    background: #080c12; border-right: 1px solid var(--border); border-bottom: 0;
+    backdrop-filter: none;
+  }
+  .nav-brand {
+    font-size: 24px; font-weight: 700; line-height: 1.08; letter-spacing: -0.8px;
+    margin: 0 0 62px 10px; gap: 14px; color: #fff;
+  }
+  .brand-mark {
+    width: 42px; height: 42px; border-radius: 12px; display: grid; place-items: center;
+    background: rgba(242,138,42,.14); color: var(--accent); flex-shrink: 0;
+  }
+  .brand-mark svg { width: 24px; height: 24px; }
+  .nav-btn {
+    height: 56px; padding: 0 18px; gap: 15px; border-radius: 12px;
+    color: var(--muted); font-size: 15px; font-weight: 600; text-align: left;
+  }
+  .nav-btn svg { width: 21px; height: 21px; flex-shrink: 0; }
+  .nav-btn:hover { color: var(--text); background: #121a23; }
+  .nav-btn.active { color: #fff; background: #161f29; box-shadow: inset 2px 0 var(--accent); }
+  .nav-btn:focus { outline: none; }
+  .nav-spacer { flex: 1; }
+  .nav-footer { color: #697380; letter-spacing: 1.2px; font-size: 12px; font-weight: 700; padding: 12px; }
+  .nav-workers-badge { margin-left: auto; background: rgba(242,138,42,.16); color: #ffac5c; }
+  .nav-workers-badge.warn { background: rgba(239,68,68,.13); color: #f87171; }
+
+  .page { margin-left: 232px; min-height: 100vh; padding: 38px 44px 48px; }
+  .container { max-width: 1320px; margin: 0 auto; }
+  .page-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 32px; }
+  .page-header h1 { font-size: 34px; letter-spacing: -1.2px; margin-bottom: 7px; }
+  .page-header p { font-size: 16px; }
+  .ready-pill {
+    display: inline-flex; align-items: center; gap: 13px; padding: 18px 28px;
+    border-radius: 40px; background: rgba(242,138,42,.12); color: #ffab5c;
+    font-weight: 700; letter-spacing: 1px; font-size: 13px;
+  }
+  .ready-dot { width: 10px; height: 10px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 14px rgba(242,138,42,.7); }
+  .ready-pill.offline { background: rgba(239,68,68,.1); color: #f87171; }
+  .ready-pill.offline .ready-dot { background: #ef4444; }
+
+  .metric-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; margin-bottom: 32px; }
+  .metric {
+    min-height: 164px; border: 1px solid var(--border); border-radius: 16px;
+    background: var(--surface); padding: 28px 32px; position: relative;
+  }
+  .metric-label { color: #9aa4b1; font-size: 12px; font-weight: 700; letter-spacing: 1.3px; text-transform: uppercase; }
+  .metric-value { font-size: 48px; letter-spacing: -2px; font-weight: 700; margin-top: 36px; }
+  .metric-note { color: var(--muted); font-size: 14px; margin-left: 6px; letter-spacing: 0; }
+  .metric-icon { position: absolute; right: 30px; top: 28px; color: var(--accent); opacity: .95; }
+  .metric-icon svg { width: 30px; height: 30px; }
+
+  .dashboard-grid { display: grid; grid-template-columns: minmax(480px, 1.55fr) minmax(330px, .95fr); gap: 22px; margin-bottom: 22px; }
+  .section-label {
+    margin-bottom: 16px; color: #dce0e5; text-transform: uppercase;
+    letter-spacing: 1.4px; font-weight: 700; font-size: 12px;
+  }
+  .card { background: var(--surface); border-color: var(--border); border-radius: 16px; padding: 22px; }
+  .card-header { margin-bottom: 18px; }
+  .card-header h2 { font-size: 14px; text-transform: uppercase; letter-spacing: 1.25px; }
+  .upload-panel { margin: 0; padding: 0; background: transparent; border: 0; }
+  #drop-zone {
+    min-height: 355px; margin: 0; display: flex; align-items: center; justify-content: center;
+    flex-direction: column; padding: 34px; border: 1px dashed #344355; border-radius: 16px;
+    background: rgba(10,14,20,.6);
+  }
+  #drop-zone.drag-over { border-color: var(--accent); background: rgba(242,138,42,.05); }
+  .drop-icon {
+    height: 70px; width: 70px; display: grid; place-items: center; border-radius: 50%;
+    color: var(--accent); background: rgba(242,138,42,.12); margin: 0 0 25px;
+  }
+  .drop-icon svg { width: 30px; height: 30px; }
+  .drop-label strong { display: block; font-size: 24px; font-weight: 650; margin-bottom: 12px; color: var(--text); }
+  .drop-label { font-size: 14px; color: var(--muted); max-width: 430px; }
+  .drop-actions { display: flex; gap: 12px; margin-top: 26px; position: relative; z-index: 1; pointer-events: none; }
+  .drop-action { display: inline-flex; padding: 14px 28px; border-radius: 10px; font-weight: 650; }
+  .drop-action.primary { background: var(--accent); color: #17100a; }
+  .drop-action.secondary { background: var(--surface2); border: 1px solid #2d3947; color: var(--text); }
+  #selected-file { color: #ffa34d; margin-top: 15px; }
+  .activity-card { margin: 0; min-height: 355px; padding: 22px 24px; }
+  .activity-card .card-header h2 { font-size: 12px; }
+  .text-action { color: var(--accent); font-size: 12px; letter-spacing: .9px; text-transform: uppercase; font-weight: 700; background: none; border: 0; cursor: pointer; }
+  #jobs-list, #recent-jobs-list { display: flex; flex-direction: column; gap: 10px; }
+  .job-row {
+    background: transparent; border: 0; border-bottom: 1px solid #1e2731;
+    border-radius: 0; padding: 12px 0 15px; gap: 10px;
+  }
+  .job-row:last-child { border-bottom: 0; }
+  .job-name { font-size: 14px; font-weight: 600; }
+  .job-meta { text-transform: uppercase; font-weight: 600; letter-spacing: .5px; font-size: 10px; margin-top: 5px; }
+  .job-actions { align-self: start; }
+  .badge { border-radius: 7px; padding: 6px 10px; }
+  .badge-queued { background: rgba(125,135,148,.15); color: #a4adba; }
+  .badge-processing { background: rgba(242,138,42,.16); color: #ffae5f; }
+  .badge-done { background: rgba(242,138,42,.12); color: #ff9c41; }
+  .progress-bar, .queue-bar, .w-progress-bar { background: #293441; }
+  .progress-fill, .queue-bar-fill, .w-progress-fill { background: var(--accent); }
+  .speed-pill { background: rgba(242,138,42,.13); color: #ffa451; }
+  .eta-pill { background: rgba(255,180,77,.12); color: #ffbd64; }
+
+  .control-bar {
+    margin: 0; padding: 25px 28px; display: grid;
+    grid-template-columns: 1.15fr 1fr .82fr 1fr 170px; align-items: end; gap: 18px;
+  }
+  .control-bar .settings-grid { display: contents; }
+  .field label { color: #828c99; letter-spacing: 1.1px; font-weight: 700; margin-bottom: 10px; }
+  select, input[type="text"], input[type="password"], .form-input {
+    width: 100%; height: 50px; background: #141c25; border: 1px solid #293645;
+    border-radius: 9px; padding: 0 14px; color: var(--text); font-size: 14px;
+  }
+  select:focus, input[type="text"]:focus, input[type="password"]:focus { border-color: var(--accent); outline: none; }
+  .btn-primary {
+    height: 50px; color: #191009; background: var(--accent); border-radius: 10px;
+    font-weight: 700; padding: 0 18px;
+  }
+  .btn-primary:hover, .btn-add:hover { background: #ffa042; }
+  .btn-primary:disabled { background: #252e37; color: #71808c; }
+  .btn-add { background: var(--accent); color: #17100a; padding: 11px 16px; }
+  .btn-secondary { background: #151d26; border-color: #293645; }
+  .icon-btn.green { color: var(--accent); border-color: rgba(242,138,42,.3); }
+  .icon-btn.green:hover { background: rgba(242,138,42,.08); }
+
+  .inner-page .container { max-width: 1120px; }
+  .inner-page .card { padding: 24px; margin-bottom: 20px; }
+  .worker-card { background: #121a22; border-color: var(--border); border-radius: 12px; }
+  .worker-card.idle, .worker-card.busy { border-color: rgba(242,138,42,.34); }
+  .w-dot.idle, .w-dot.busy { background: var(--accent); }
+  .w-status-badge.idle, .w-status-badge.busy { background: rgba(242,138,42,.14); color: #ffa652; }
+  .queue-item, .lib-card { background: #121a22; border-color: var(--border); border-radius: 12px; }
+  .queue-item.is-processing { border-color: rgba(242,138,42,.28); }
+  .queue-pos.processing { background: rgba(242,138,42,.14); border-color: rgba(242,138,42,.34); color: var(--accent); }
+  .toggle input:checked + .slider { background: var(--accent); }
+  code { color: #ffab5c !important; }
+  .modal { background: #10161e; border-color: #26313d; }
+
+  @media (max-width: 1050px) {
+    nav { position: sticky; width: auto; height: 70px; flex-direction: row; padding: 10px 16px; border-right: 0; border-bottom: 1px solid var(--border); }
+    .nav-brand { margin: 0 22px 0 0; font-size: 17px; }
+    .brand-mark { width: 38px; height: 38px; }
+    .nav-spacer, .nav-footer { display: none; }
+    .nav-btn { height: 48px; padding: 0 12px; }
+    .page { margin-left: 0; padding: 28px 20px; }
+    .dashboard-grid, .metric-grid { grid-template-columns: 1fr; }
+    .control-bar { grid-template-columns: repeat(2, 1fr); }
+    .control-bar .btn-primary { grid-column: 1 / -1; }
+  }
+  @media (max-width: 620px) {
+    .nav-brand div:last-child, .nav-btn span:not(.nav-workers-badge) { display: none; }
+    .page-header { align-items: flex-start; flex-direction: column; gap: 18px; }
+    .control-bar { grid-template-columns: 1fr; }
+    .dashboard-grid { display: block; }
+    .activity-card { margin-top: 22px; }
+    #drop-zone { min-height: 300px; }
+  }
 </style>
 </head>
 <body>
 
 <!-- ── Nav ── -->
 <nav>
-  <div class="nav-brand"><span>🎬</span> Subgen</div>
-  <button class="nav-btn active" id="nav-home"      onclick="showPage('home')">🏠 Home</button>
-  <button class="nav-btn"        id="nav-workers"   onclick="showPage('workers')">🖥️ Workers <span id="nav-workers-badge" class="nav-workers-badge" style="display:none"></span></button>
-  <button class="nav-btn"        id="nav-libraries" onclick="showPage('libraries')">📂 Libraries</button>
-  <button class="nav-btn"        id="nav-settings"  onclick="showPage('settings')">⚙️ Settings</button>
+  <div class="nav-brand">
+    <div class="brand-mark">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M5 7h14M5 12h14M5 17h10"/></svg>
+    </div>
+    <div>Subgen<br>Studio</div>
+  </div>
+  <button class="nav-btn active" id="nav-home" onclick="showPage('home')">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 4h6v7H4zM14 4h6v7h-6zM4 15h6v5H4zM14 15h6v5h-6z"/></svg>
+    <span>Dashboard</span>
+  </button>
+  <button class="nav-btn" id="nav-workers" onclick="showPage('workers')">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8M12 16v4"/></svg>
+    <span>Workers</span><span id="nav-workers-badge" class="nav-workers-badge" style="display:none"></span>
+  </button>
+  <button class="nav-btn" id="nav-libraries" onclick="showPage('libraries')">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 7h7l2 2h9v10H3z"/><path d="M3 7V5h7l2 2"/></svg>
+    <span>Library</span>
+  </button>
+  <button class="nav-btn" id="nav-history" onclick="showPage('history')">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12a9 9 0 1 0 3-6.7"/><path d="M3 4v6h6M12 7v6l4 2"/></svg>
+    <span>History</span>
+  </button>
+  <button class="nav-btn" id="nav-settings" onclick="showPage('settings')">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 15.5A3.5 3.5 0 1 0 12 8a3.5 3.5 0 0 0 0 7.5z"/><path d="M19.4 15a1.6 1.6 0 0 0 .3 1.8l.1.1-2.8 2.8-.1-.1a1.6 1.6 0 0 0-1.8-.3 1.6 1.6 0 0 0-1 1.5v.2h-4v-.2a1.6 1.6 0 0 0-1-1.5 1.6 1.6 0 0 0-1.8.3l-.1.1-2.8-2.8.1-.1A1.6 1.6 0 0 0 4.7 15a1.6 1.6 0 0 0-1.5-1H3v-4h.2a1.6 1.6 0 0 0 1.5-1A1.6 1.6 0 0 0 4.4 7.2l-.1-.1 2.8-2.8.1.1A1.6 1.6 0 0 0 9 4.7a1.6 1.6 0 0 0 1-1.5V3h4v.2a1.6 1.6 0 0 0 1 1.5 1.6 1.6 0 0 0 1.8-.3l.1-.1 2.8 2.8-.1.1a1.6 1.6 0 0 0-.3 1.8 1.6 1.6 0 0 0 1.5 1h.2v4h-.2a1.6 1.6 0 0 0-1.4 1z"/></svg>
+    <span>Settings</span>
+  </button>
+  <div class="nav-spacer"></div>
+  <div class="nav-footer">SUBGEN WEB UI</div>
 </nav>
 
 <!-- ══════════════════════════ HOME PAGE ══════════════════════════ -->
 <div class="page active" id="page-home">
   <div class="container">
-
-    <!-- Upload -->
-    <div class="card">
-      <div class="card-header"><h2>New Transcription</h2></div>
-      <div id="drop-zone">
-        <input type="file" id="file-input" accept="video/*,audio/*,.mkv,.mp4,.avi,.mov,.m4a,.mp3,.wav,.flac,.ogg,.webm">
-        <div class="drop-icon">🎬</div>
-        <div class="drop-label"><strong>Drop a file here</strong> or click to browse<br><small>MP4, MKV, AVI, MOV, MP3, WAV…</small></div>
-        <div id="selected-file"></div>
+    <div class="page-header">
+      <div>
+        <h1>Dashboard</h1>
+        <p>Monitor subtitle generation and start new transcriptions.</p>
       </div>
+      <div class="ready-pill" id="system-ready-pill"><span class="ready-dot"></span><span id="system-ready-text">SYSTEM READY</span></div>
+    </div>
+
+    <div class="metric-grid">
+      <div class="metric">
+        <div class="metric-label">Subtitles Generated</div>
+        <div class="metric-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M7 3h8l4 4v14H7z"/><path d="M15 3v5h4M10 13h6M10 17h6"/></svg></div>
+        <div class="metric-value" id="stat-done">0</div>
+      </div>
+      <div class="metric">
+        <div class="metric-label">Currently Processing</div>
+        <div class="metric-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 7v5l3 2"/><circle cx="12" cy="12" r="9"/></svg></div>
+        <div class="metric-value" id="stat-processing">0</div>
+      </div>
+      <div class="metric">
+        <div class="metric-label">In Queue</div>
+        <div class="metric-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3 2.8 20h18.4z"/><path d="M12 9v5M12 17.5v.5"/></svg></div>
+        <div class="metric-value" id="stat-queued">0</div>
+      </div>
+    </div>
+
+    <div class="dashboard-grid">
+      <section>
+        <div class="section-label">New Transcription</div>
+        <div class="upload-panel">
+          <div id="drop-zone">
+            <input type="file" id="file-input" accept="video/*,audio/*,.mkv,.mp4,.avi,.mov,.m4a,.mp3,.wav,.flac,.ogg,.webm">
+            <div class="drop-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M7 3h8l4 4v14H7z"/><path d="M15 3v5h4"/></svg></div>
+            <div class="drop-label"><strong>Drag &amp; Drop Media Here</strong>Supports MP4, MKV, AVI, MOV, MP3, WAV and more.</div>
+            <div class="drop-actions"><span class="drop-action primary">Browse Files</span><span class="drop-action secondary">Select Media</span></div>
+            <div id="selected-file"></div>
+          </div>
+        </div>
+      </section>
+
+      <section>
+        <div class="section-label">Recent Activity</div>
+        <div class="card activity-card">
+          <div class="card-header">
+            <h2>Latest Jobs</h2>
+            <button class="text-action" onclick="loadJobs()">Refresh</button>
+          </div>
+          <div id="recent-jobs-list"><div class="empty-state">No jobs yet</div></div>
+        </div>
+      </section>
+    </div>
+
+    <div class="card control-bar">
       <div class="settings-grid">
         <div class="field">
           <label>Model</label>
@@ -284,7 +529,7 @@
           </select>
         </div>
         <div class="field">
-          <label>Format</label>
+          <label>Output Format</label>
           <select id="out-format">
             <option value="srt" selected>SRT</option>
             <option value="vtt">VTT</option>
@@ -298,28 +543,31 @@
           </select>
         </div>
       </div>
-      <button class="btn-primary" id="submit-btn" disabled>Transcribe</button>
-      <div id="upload-status" style="display:none;margin-top:12px;text-align:center;font-size:13px;color:var(--muted)">Uploading…</div>
+      <button class="btn-primary" id="submit-btn" disabled>Start Transcription</button>
+      <div id="upload-status" style="display:none;grid-column:1/-1;text-align:center;font-size:13px;color:var(--muted)">Uploading...</div>
     </div>
+  </div>
+</div>
 
-    <!-- Job History -->
+<!-- ══════════════════════════ HISTORY PAGE ══════════════════════════ -->
+<div class="page inner-page" id="page-history">
+  <div class="container">
+    <div class="page-header">
+      <div><h1>History</h1><p>All subtitle jobs, outputs, and processing results.</p></div>
+      <button class="btn-secondary" onclick="loadJobs()">Refresh Jobs</button>
+    </div>
     <div class="card">
-      <div class="card-header">
-        <h2>Job History</h2>
-        <button class="icon-btn" onclick="loadJobs()">↻ Refresh</button>
-      </div>
+      <div class="card-header"><h2>All Jobs</h2></div>
       <div id="jobs-list"><div class="empty-state">No jobs yet</div></div>
     </div>
-
   </div>
 </div>
 
 <!-- ══════════════════════════ WORKERS PAGE ══════════════════════════ -->
-<div class="page" id="page-workers">
+<div class="page inner-page" id="page-workers">
   <div class="container">
     <div class="page-header">
-      <h1>Workers</h1>
-      <p>Transcription workers — each worker processes one job at a time</p>
+      <div><h1>Workers</h1><p>Each worker processes one transcription job at a time.</p></div>
     </div>
 
     <div class="card">
@@ -354,11 +602,10 @@
 </div>
 
 <!-- ══════════════════════════ LIBRARIES PAGE ══════════════════════════ -->
-<div class="page" id="page-libraries">
+<div class="page inner-page" id="page-libraries">
   <div class="container">
     <div class="page-header">
-      <h1>Libraries</h1>
-      <p>Watched folders — new video files are transcribed automatically</p>
+      <div><h1>Library</h1><p>Watched folders automatically queue new media for subtitles.</p></div>
     </div>
 
     <div class="card">
@@ -459,11 +706,10 @@
 </div>
 
 <!-- ══════════════════════════ SETTINGS PAGE ══════════════════════════ -->
-<div class="page" id="page-settings">
+<div class="page inner-page" id="page-settings">
   <div class="container">
     <div class="page-header">
-      <h1>Settings</h1>
-      <p>Webhooks and integrations</p>
+      <div><h1>Settings</h1><p>Webhooks and media server integrations.</p></div>
     </div>
 
     <div class="card">
@@ -510,6 +756,7 @@ function showPage(name) {
   if (name === 'libraries') { loadLibraries(); populateWorkerSelects(); }
   if (name === 'workers')   { loadWorkers(); loadQueue(); }
   if (name === 'home')      { loadJobs(); loadWorkers(); }
+  if (name === 'history')   { loadJobs(); }
   if (name === 'settings')  { loadSettings(); }
 }
 
@@ -532,6 +779,13 @@ async function loadWorkers() {
 function renderNavBadge(workers) {
   const badge  = document.getElementById('nav-workers-badge');
   const online = workers.filter(w => w.status !== 'offline').length;
+  const ready  = document.getElementById('system-ready-pill');
+  const readyText = document.getElementById('system-ready-text');
+  if (ready && readyText) {
+    const isReady = online > 0;
+    ready.classList.toggle('offline', !isReady);
+    readyText.textContent = isReady ? 'SYSTEM READY' : 'WORKERS OFFLINE';
+  }
   if (!workers.length) { badge.style.display = 'none'; return; }
   badge.style.display = '';
   badge.textContent   = online;
@@ -615,6 +869,7 @@ function populateWorkerSelects() {
 setInterval(() => {
   loadWorkers();
   if (document.getElementById('page-workers').classList.contains('active')) loadQueue();
+  if (document.getElementById('page-home').classList.contains('active')) loadJobs();
 }, 3000);
 
 // ── Queue ──
@@ -764,16 +1019,37 @@ submitBtn.addEventListener('click', async () => {
 async function loadJobs() {
   const res = await fetch('/jobs');
   const jobs = await res.json();
+  updateDashboardStats(jobs);
   renderJobs(jobs);
   jobs.filter(j => j.status === 'queued' || j.status === 'processing')
       .forEach(j => subscribeJob(j.id));
 }
 
 function renderJobs(jobs) {
-  const el = document.getElementById('jobs-list');
-  if (!jobs.length) { el.innerHTML = '<div class="empty-state">No jobs yet</div>'; return; }
-  el.innerHTML = '';
-  jobs.forEach(j => el.appendChild(buildJobRow(j)));
+  const history = document.getElementById('jobs-list');
+  const recent = document.getElementById('recent-jobs-list');
+  if (!jobs.length) {
+    if (history) history.innerHTML = '<div class="empty-state">No jobs yet</div>';
+    if (recent) recent.innerHTML = '<div class="empty-state">No jobs yet</div>';
+    return;
+  }
+  if (history) {
+    history.innerHTML = '';
+    jobs.forEach(j => history.appendChild(buildJobRow(j)));
+  }
+  if (recent) {
+    recent.innerHTML = '';
+    jobs.slice(0, 4).forEach(j => recent.appendChild(buildJobRow(j, true)));
+  }
+}
+
+function updateDashboardStats(jobs) {
+  const completed = jobs.filter(j => j.status === 'done').length;
+  const processing = jobs.filter(j => j.status === 'processing').length;
+  const queued = jobs.filter(j => j.status === 'queued').length;
+  document.getElementById('stat-done').textContent = completed.toLocaleString();
+  document.getElementById('stat-processing').textContent = String(processing).padStart(2, '0');
+  document.getElementById('stat-queued').textContent = String(queued).padStart(2, '0');
 }
 
 function fmtEta(secs) {
@@ -782,9 +1058,11 @@ function fmtEta(secs) {
   return s > 0 ? `${m}m ${s}s` : `${m}m`;
 }
 
-function buildJobRow(job) {
+function buildJobRow(job, compact = false) {
   const row = document.createElement('div');
-  row.className = 'job-row'; row.id = 'job-' + job.id;
+  row.className = 'job-row';
+  row.id = (compact ? 'recent-job-' : 'job-') + job.id;
+  row.dataset.jobId = job.id;
   const isActive = job.status === 'queued' || job.status === 'processing';
   const pct = job.progress ?? 0, ind = pct === -1;
   const lang = job.language ? ' · ' + job.language.toUpperCase() : '';
@@ -795,9 +1073,9 @@ function buildJobRow(job) {
   if (isActive && (job.speed != null || job.eta != null)) {
     const s = job.speed != null ? `<span class="speed-pill">${job.speed}× speed</span>` : '';
     const e = job.eta   != null ? `<span class="eta-pill">~${fmtEta(job.eta)} left</span>` : '';
-    speedHtml = `<div class="job-speed" id="speed-${job.id}">${s}${e}</div>`;
+    speedHtml = `<div class="job-speed">${s}${e}</div>`;
   } else if (isActive) {
-    speedHtml = `<div class="job-speed" id="speed-${job.id}"></div>`;
+    speedHtml = `<div class="job-speed"></div>`;
   }
 
   row.innerHTML = `
@@ -810,27 +1088,29 @@ function buildJobRow(job) {
     </div>
     <div class="job-actions">
       <span class="badge badge-${job.status}">${job.status==='processing'?Math.round(pct)+'%':job.status}</span>
-      ${job.status==='done'?`<button class="icon-btn green" onclick="downloadJob('${job.id}')">↓ Download</button>`:''}
-      <button class="icon-btn red" onclick="deleteJob('${job.id}')">✕</button>
+      ${!compact && job.status==='done'?`<button class="icon-btn green" onclick="downloadJob('${job.id}')">Download</button>`:''}
+      ${!compact ? `<button class="icon-btn red" onclick="deleteJob('${job.id}')">Remove</button>` : ''}
     </div>`;
   return row;
 }
 
 function updateJobRow(jobId, data) {
-  const row = document.getElementById('job-' + jobId);
-  if (!row) { loadJobs(); return; }
+  const rows = document.querySelectorAll(`.job-row[data-job-id="${jobId}"]`);
+  if (!rows.length) { loadJobs(); return; }
   const pct    = data.progress ?? 0, ind = pct === -1;
   const status = data.status || 'processing';
-  const fill   = row.querySelector('.progress-fill');
-  if (fill) { fill.style.width = (ind?40:pct)+'%'; fill.classList.toggle('indeterminate', ind); }
-  const badge = row.querySelector('.badge');
-  if (badge) { badge.className = `badge badge-${status}`; badge.textContent = status==='processing'?Math.round(pct)+'%':status; }
-  const speedEl = document.getElementById('speed-' + jobId);
-  if (speedEl && status === 'processing') {
-    const s = data.speed != null ? `<span class="speed-pill">${data.speed}× speed</span>` : '';
-    const e = data.eta   != null ? `<span class="eta-pill">~${fmtEta(data.eta)} left</span>` : '';
-    speedEl.innerHTML = s + e;
-  }
+  rows.forEach(row => {
+    const fill = row.querySelector('.progress-fill');
+    if (fill) { fill.style.width = (ind?40:pct)+'%'; fill.classList.toggle('indeterminate', ind); }
+    const badge = row.querySelector('.badge');
+    if (badge) { badge.className = `badge badge-${status}`; badge.textContent = status==='processing'?Math.round(pct)+'%':status; }
+    const speedEl = row.querySelector('.job-speed');
+    if (speedEl && status === 'processing') {
+      const s = data.speed != null ? `<span class="speed-pill">${data.speed}× speed</span>` : '';
+      const e = data.eta   != null ? `<span class="eta-pill">~${fmtEta(data.eta)} left</span>` : '';
+      speedEl.innerHTML = s + e;
+    }
+  });
   if (status === 'done' || status === 'failed') loadJobs();
 }
 
@@ -850,9 +1130,7 @@ async function downloadJob(id) { window.location = '/jobs/' + id + '/download'; 
 async function deleteJob(id) {
   if (!confirm('Delete this job?')) return;
   await fetch('/jobs/' + id, { method: 'DELETE' });
-  document.getElementById('job-' + id)?.remove();
-  if (!document.getElementById('jobs-list').children.length)
-    document.getElementById('jobs-list').innerHTML = '<div class="empty-state">No jobs yet</div>';
+  await loadJobs();
 }
 
 // ── Libraries ──
