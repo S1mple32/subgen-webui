@@ -112,6 +112,7 @@
   .w-job-meta { font-size: 11px; color: var(--muted); margin-top: 2px; }
   .w-progress-bar { height: 3px; border-radius: 2px; background: var(--border); margin-top: 8px; overflow: hidden; }
   .w-progress-fill { height: 100%; border-radius: 2px; background: var(--accent); transition: width 0.5s ease; }
+  .w-progress-fill.indeterminate { width: 40% !important; animation: slide 1.2s ease-in-out infinite; }
 
   .w-speed { font-size: 11px; margin-top: 5px; display: flex; gap: 6px; }
   .speed-pill { background: rgba(99,102,241,0.12); color: #818cf8; border-radius: 20px; padding: 1px 7px; font-weight: 600; }
@@ -521,10 +522,13 @@ function renderWorkers(workers) {
     if (s === 'busy') {
       const spd = w.job_speed != null ? `<span class="speed-pill">${w.job_speed}×</span>` : '';
       const eta = w.job_eta  != null ? `<span class="eta-pill">~${fmtEta(w.job_eta)}</span>` : '';
+      const loading = pct === 0 && !spd && !eta;
+      const barClass = loading ? 'w-progress-fill indeterminate' : 'w-progress-fill';
+      const pctLabel = loading ? 'Loading model…' : `${pct}%`;
       body = `
         <div class="w-job-name">${esc(w.job_filename || '')}</div>
-        <div class="w-progress-bar"><div class="w-progress-fill" style="width:${pct}%"></div></div>
-        <div class="w-job-meta">${pct}%</div>
+        <div class="w-progress-bar"><div class="${barClass}" style="width:${loading?40:pct}%"></div></div>
+        <div class="w-job-meta">${pctLabel}</div>
         ${(spd||eta) ? `<div class="w-speed">${spd}${eta}</div>` : ''}`;
     } else if (s === 'offline') {
       body = `<div class="w-job-meta" style="margin-top:4px">Not connected</div>`;

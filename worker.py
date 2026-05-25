@@ -56,24 +56,35 @@ def _conn() -> sqlite3.Connection:
 
 def _update(job_id: str, **fields):
     clause = ", ".join(f"{k} = ?" for k in fields)
-    with _conn() as c:
+    now = datetime.utcnow().isoformat()
+    c = sqlite3.connect(str(DB_PATH), timeout=30, check_same_thread=False)
+    try:
         c.execute(f"UPDATE jobs SET {clause} WHERE id = ?", [*fields.values(), job_id])
+        # Piggyback heartbeat on every job update so the worker stays ONLINE
+        # even if the background heartbeat thread hits an error.
+        c.execute(
+            "UPDATE workers SET last_seen = ?, current_job = ? WHERE id = ?",
+            (now, job_id, WORKER_ID),
+        )
         c.commit()
+    finally:
+        c.close()
 
 
 def _heartbeat(current_job: Optional[str] = None):
     try:
-        with _conn() as c:
-            c.execute("""
-                INSERT INTO workers (id, host, last_seen, current_job)
-                VALUES (?, ?, ?, ?)
-                ON CONFLICT(id) DO UPDATE SET
-                    last_seen   = excluded.last_seen,
-                    current_job = excluded.current_job
-            """, (WORKER_ID, WORKER_HOST, datetime.utcnow().isoformat(), current_job))
-            c.commit()
-    except Exception:
-        pass  # Never let a heartbeat failure crash the worker
+        c = sqlite3.connect(str(DB_PATH), timeout=10, check_same_thread=False)
+        c.execute("""
+            INSERT INTO workers (id, host, last_seen, current_job)
+            VALUES (?, ?, ?, ?)
+            ON CONFLICT(id) DO UPDATE SET
+                last_seen   = excluded.last_seen,
+                current_job = excluded.current_job
+        """, (WORKER_ID, WORKER_HOST, datetime.utcnow().isoformat(), current_job))
+        c.commit()
+        c.close()
+    except Exception as exc:
+        print(f"[{WORKER_ID}] heartbeat error: {exc}", flush=True)
 
 
 def _heartbeat_loop():

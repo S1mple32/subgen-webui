@@ -485,10 +485,16 @@ async def list_workers():
                    j.speed     AS job_speed,
                    j.eta       AS job_eta,
                    CASE
+                     -- A worker with a live processing job is always BUSY
+                     -- (heartbeat may lag during model download which can take minutes)
+                     WHEN j.status = 'processing'
+                          AND (w.last_seen IS NULL
+                               OR datetime(w.last_seen) > datetime('now', '-5 minutes'))
+                          THEN 'busy'
                      WHEN w.last_seen IS NULL THEN 'offline'
-                     WHEN datetime(w.last_seen) > datetime('now', '-15 seconds')
+                     WHEN datetime(w.last_seen) > datetime('now', '-30 seconds')
                           AND w.current_job IS NOT NULL THEN 'busy'
-                     WHEN datetime(w.last_seen) > datetime('now', '-15 seconds') THEN 'idle'
+                     WHEN datetime(w.last_seen) > datetime('now', '-30 seconds') THEN 'idle'
                      ELSE 'offline'
                    END AS status
             FROM workers w
