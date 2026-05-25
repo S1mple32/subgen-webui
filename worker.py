@@ -9,7 +9,6 @@ import os
 import platform
 import signal
 import sqlite3
-import threading
 import time
 import urllib.request
 import uuid
@@ -31,9 +30,6 @@ OUTPUT_DIR.mkdir(exist_ok=True)
 MODELS_DIR.mkdir(exist_ok=True)
 
 _running = True
-# Current job ID — updated by main thread, read by heartbeat thread
-_current_job: Optional[str] = None
-_current_job_lock = threading.Lock()
 
 
 def _handle_signal(sig, _frame):
@@ -62,8 +58,7 @@ def _update(job_id: str, **fields):
     c = sqlite3.connect(str(DB_PATH), timeout=30, check_same_thread=False)
     try:
         c.execute(f"UPDATE jobs SET {clause} WHERE id = ?", [*fields.values(), job_id])
-        # Piggyback heartbeat on every job update so the worker stays ONLINE
-        # even if the background heartbeat thread hits an error.
+        # Piggyback heartbeat so app.py sees the worker as ONLINE during transcription.
         c.execute(
             "UPDATE workers SET last_seen = ?, current_job = ? WHERE id = ?",
             (now, job_id, WORKER_ID),
@@ -88,15 +83,6 @@ def _heartbeat(current_job: Optional[str] = None):
     except Exception as exc:
         print(f"[{WORKER_ID}] heartbeat error: {exc}", flush=True)
 
-
-def _heartbeat_loop():
-    """Background thread: heartbeat every 4 s regardless of what the main thread does.
-    This keeps the worker visible in the UI during model loading, transcription, etc."""
-    while _running:
-        with _current_job_lock:
-            job = _current_job
-        _heartbeat(job)
-        time.sleep(4)
 
 
 def _claim() -> Optional[dict]:
@@ -187,15 +173,10 @@ def _fire_webhooks(job: dict):
 # ---------------------------------------------------------------------------
 
 def _process(job: dict):
-    global _current_job
     job_id = job["id"]
     out_format = job.get("out_format") or "srt"
     model_size = job.get("model_size") or "base"
     language   = job.get("language") or "auto"
-
-    # Tell the heartbeat thread which job we're on
-    with _current_job_lock:
-        _current_job = job_id
 
     # Resolve source file — library jobs have source_path; uploads are in UPLOAD_DIR
     source_path = job.get("source_path")
@@ -206,16 +187,12 @@ def _process(job: dict):
         candidates = list(UPLOAD_DIR.glob(f"{job_id}_*"))
         if not candidates:
             _update(job_id, status="failed", error="Source file not found")
-            with _current_job_lock:
-                _current_job = None
             return
         file_path    = candidates[0]
         delete_after = True
 
     if not file_path.exists():
         _update(job_id, status="failed", error=f"File missing: {file_path}")
-        with _current_job_lock:
-            _current_job = None
         return
 
     print(f"[{WORKER_ID}] ▶ {job['filename']}  ({job_id[:8]})")
@@ -224,7 +201,7 @@ def _process(job: dict):
     try:
         duration   = get_duration(file_path)
         lang_arg   = language if language != "auto" else None
-        # Model loading may take minutes on first run — heartbeat thread keeps us alive
+        # Model loading may take minutes on first run; app.py shows BUSY while status='processing'
         model      = load_model(model_size, str(MODELS_DIR))
 
         segments_gen, info = model.transcribe(
@@ -266,8 +243,6 @@ def _process(job: dict):
         if delete_after and file_path.exists():
             try: file_path.unlink()
             except Exception: pass
-        with _current_job_lock:
-            _current_job = None
 
 
 # ---------------------------------------------------------------------------
@@ -275,18 +250,12 @@ def _process(job: dict):
 # ---------------------------------------------------------------------------
 
 def main():
-    # Enable WAL mode once at worker startup — app.py also sets this, but workers
-    # may start before the web container and need WAL for concurrent DB access.
+    # Attempt WAL mode (may silently fall back to DELETE on some filesystems).
     with _conn() as c:
         c.execute("PRAGMA journal_mode=WAL")
         c.execute("PRAGMA synchronous=NORMAL")
 
     print(f"[{WORKER_ID}] worker ready  host={WORKER_HOST}  db={DB_PATH}")
-
-    # Start background heartbeat thread — fires every 4 s no matter what the
-    # main thread is doing (idle, loading model, transcribing, etc.)
-    hb_thread = threading.Thread(target=_heartbeat_loop, name="heartbeat", daemon=True)
-    hb_thread.start()
 
     while _running:
         job = _claim()
