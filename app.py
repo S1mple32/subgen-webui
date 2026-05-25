@@ -335,6 +335,68 @@ async def delete_job(job_id: str):
     return {"ok": True}
 
 
+@app.post("/jobs/{job_id}/queue/move")
+async def move_queued_job(job_id: str, direction: str = Form(...)):
+    """Move a waiting job within the FIFO queue without affecting active work."""
+    if direction not in ("up", "down"):
+        raise HTTPException(400, "Direction must be 'up' or 'down'")
+
+    with _db() as conn:
+        conn.execute("BEGIN IMMEDIATE")
+        rows = conn.execute(
+            "SELECT id, created_at FROM jobs WHERE status = 'queued'"
+            " ORDER BY created_at, id"
+        ).fetchall()
+        ids = [row["id"] for row in rows]
+        if job_id not in ids:
+            row = conn.execute("SELECT status FROM jobs WHERE id = ?", (job_id,)).fetchone()
+            if not row:
+                raise HTTPException(404, "Job not found")
+            raise HTTPException(409, "Only waiting jobs can be reordered")
+
+        index = ids.index(job_id)
+        target = index - 1 if direction == "up" else index + 1
+        if 0 <= target < len(rows):
+            conn.execute(
+                "UPDATE jobs SET created_at = ? WHERE id = ?",
+                (rows[target]["created_at"], rows[index]["id"]),
+            )
+            conn.execute(
+                "UPDATE jobs SET created_at = ? WHERE id = ?",
+                (rows[index]["created_at"], rows[target]["id"]),
+            )
+        conn.commit()
+    return {"ok": True}
+
+
+@app.delete("/jobs/{job_id}/queue")
+async def delete_queued_job(job_id: str):
+    """Remove waiting work safely and keep dismissed library media out of scans."""
+    with _db() as conn:
+        conn.execute("BEGIN IMMEDIATE")
+        row = conn.execute(
+            "SELECT status, source_path FROM jobs WHERE id = ?", (job_id,)
+        ).fetchone()
+        if not row:
+            raise HTTPException(404, "Job not found")
+        if row["status"] != "queued":
+            raise HTTPException(409, "This job has already started processing")
+        if row["source_path"]:
+            conn.execute(
+                "UPDATE jobs SET status = 'cancelled', worker_id = NULL,"
+                " progress = 0, speed = NULL, eta = NULL WHERE id = ?",
+                (job_id,),
+            )
+        else:
+            conn.execute("DELETE FROM jobs WHERE id = ?", (job_id,))
+        conn.commit()
+
+    if not row["source_path"]:
+        for path in UPLOAD_DIR.glob(f"{job_id}_*"):
+            path.unlink(missing_ok=True)
+    return {"ok": True}
+
+
 # ---------------------------------------------------------------------------
 # Docker Compose sync
 # ---------------------------------------------------------------------------

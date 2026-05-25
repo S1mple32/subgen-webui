@@ -194,6 +194,14 @@
   .queue-bar   { width: 110px; height: 3px; border-radius: 2px; background: var(--border); overflow: hidden; }
   .queue-bar-fill { height: 100%; border-radius: 2px; background: var(--blue); transition: width 0.4s ease; }
   .queue-bar-fill.indeterminate { width: 40% !important; animation: slide 1.2s ease-in-out infinite; }
+  .queue-controls { display: flex; gap: 5px; align-items: center; margin-top: 4px; }
+  .queue-control {
+    border: 1px solid #304050; background: #17202a; color: #b6bec8; border-radius: 7px;
+    min-width: 29px; height: 27px; padding: 0 8px; cursor: pointer; font-size: 12px; font-weight: 600;
+  }
+  .queue-control:hover:not(:disabled) { color: var(--accent); border-color: rgba(242,138,42,.45); }
+  .queue-control:disabled { opacity: .35; cursor: default; }
+  .queue-control.remove { color: #f4a25a; }
 
   /* ── Library cards ── */
   #libraries-list { display: flex; flex-direction: column; gap: 10px; }
@@ -350,6 +358,7 @@
   .badge-queued { background: rgba(125,135,148,.15); color: #a4adba; }
   .badge-processing { background: rgba(242,138,42,.16); color: #ffae5f; }
   .badge-done { background: rgba(242,138,42,.12); color: #ff9c41; }
+  .badge-cancelled { background: rgba(125,135,148,.12); color: #8993a0; }
   .progress-bar, .queue-bar, .w-progress-bar { background: #293441; }
   .progress-fill, .queue-bar-fill, .w-progress-fill { background: var(--accent); }
   .speed-pill { background: rgba(242,138,42,.13); color: #ffa451; }
@@ -900,7 +909,7 @@ function renderQueue(jobs) {
     return;
   }
 
-  // Sort: processing first, then queued by created_at
+  // Sort: processing first, then the FIFO order used by workers.
   jobs.sort((a, b) => {
     if (a.status === b.status) return a.created_at < b.created_at ? -1 : 1;
     return a.status === 'processing' ? -1 : 1;
@@ -908,6 +917,7 @@ function renderQueue(jobs) {
 
   el.innerHTML = '';
   let queuePos = 1;
+  const waiting = jobs.filter(job => job.status === 'queued');
   jobs.forEach(job => {
     const isProc = job.status === 'processing';
     const pct    = job.progress ?? 0;
@@ -921,6 +931,7 @@ function renderQueue(jobs) {
     const eta = job.eta   != null ? `<span class="eta-pill">~${fmtEta(job.eta)}</span>` : '';
 
     const posLabel = isProc ? '▶' : String(queuePos);
+    const queueIndex = isProc ? -1 : waiting.findIndex(waitingJob => waitingJob.id === job.id);
     if (!isProc) queuePos++;
 
     const item = document.createElement('div');
@@ -936,9 +947,31 @@ function renderQueue(jobs) {
       <div class="queue-right">
         <span class="badge badge-${job.status}">${isProc ? Math.round(pct)+'%' : 'queued'}</span>
         ${isProc && (spd||eta) ? `<div class="queue-pills">${spd}${eta}</div>` : ''}
+        ${!isProc ? `<div class="queue-controls">
+          <button class="queue-control" title="Move up" ${queueIndex === 0 ? 'disabled' : ''} onclick="moveQueuedJob('${job.id}', 'up')">↑</button>
+          <button class="queue-control" title="Move down" ${queueIndex === waiting.length - 1 ? 'disabled' : ''} onclick="moveQueuedJob('${job.id}', 'down')">↓</button>
+          <button class="queue-control remove" title="Remove from queue" onclick="deleteQueuedJob('${job.id}')">Remove</button>
+        </div>` : ''}
       </div>`;
     el.appendChild(item);
   });
+}
+
+async function moveQueuedJob(id, direction) {
+  const fd = new FormData();
+  fd.append('direction', direction);
+  const res = await fetch('/jobs/' + id + '/queue/move', { method: 'POST', body: fd });
+  if (!res.ok) alert('Could not reorder this item. It may have already started processing.');
+  await loadQueue();
+  await loadJobs();
+}
+
+async function deleteQueuedJob(id) {
+  if (!confirm('Remove this show from the queue?')) return;
+  const res = await fetch('/jobs/' + id + '/queue', { method: 'DELETE' });
+  if (!res.ok) alert('Could not remove this item. It may have already started processing.');
+  await loadQueue();
+  await loadJobs();
 }
 
 // ── Worker modal ──
