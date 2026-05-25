@@ -1039,7 +1039,11 @@ function renderJobs(jobs) {
   }
   if (recent) {
     recent.innerHTML = '';
-    jobs.slice(0, 4).forEach(j => recent.appendChild(buildJobRow(j, true)));
+    const priority = { processing: 0, queued: 1, done: 2, failed: 3 };
+    [...jobs].sort((a, b) =>
+      (priority[a.status] ?? 4) - (priority[b.status] ?? 4) ||
+      String(b.created_at).localeCompare(String(a.created_at))
+    ).slice(0, 4).forEach(j => recent.appendChild(buildJobRow(j, true)));
   }
 }
 
@@ -1064,17 +1068,18 @@ function buildJobRow(job, compact = false) {
   row.id = (compact ? 'recent-job-' : 'job-') + job.id;
   row.dataset.jobId = job.id;
   const isActive = job.status === 'queued' || job.status === 'processing';
+  const isProcessing = job.status === 'processing';
   const pct = job.progress ?? 0, ind = pct === -1;
   const lang = job.language ? ' · ' + job.language.toUpperCase() : '';
   const wkr  = job.worker_id ? ` · ${esc(job.worker_id)}` : (job.preferred_worker ? ` · →${esc(job.preferred_worker)}` : '');
   const ts   = job.created_at ? new Date(job.created_at + 'Z').toLocaleString() : '';
 
   let speedHtml = '';
-  if (isActive && (job.speed != null || job.eta != null)) {
+  if (isProcessing && (job.speed != null || job.eta != null)) {
     const s = job.speed != null ? `<span class="speed-pill">${job.speed}× speed</span>` : '';
     const e = job.eta   != null ? `<span class="eta-pill">~${fmtEta(job.eta)} left</span>` : '';
     speedHtml = `<div class="job-speed">${s}${e}</div>`;
-  } else if (isActive) {
+  } else if (isProcessing) {
     speedHtml = `<div class="job-speed"></div>`;
   }
 
@@ -1082,8 +1087,8 @@ function buildJobRow(job, compact = false) {
     <div style="min-width:0">
       <div class="job-name" title="${esc(job.filename)}">${esc(job.filename)}</div>
       <div class="job-meta">${ts} · ${esc(job.model_size||'')} · ${(job.out_format||'').toUpperCase()}${lang}${wkr}</div>
-      ${isActive ? speedHtml : ''}
-      ${isActive ? `<div class="progress-bar"><div class="progress-fill${ind?' indeterminate':''}" style="width:${ind?40:pct}%"></div></div>` : ''}
+      ${isProcessing ? speedHtml : ''}
+      ${isProcessing ? `<div class="progress-bar"><div class="progress-fill${ind?' indeterminate':''}" style="width:${ind?40:pct}%"></div></div>` : ''}
       ${job.error ? `<div class="error-text">${esc(job.error)}</div>` : ''}
     </div>
     <div class="job-actions">
