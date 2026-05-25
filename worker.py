@@ -59,10 +59,14 @@ def _update(job_id: str, **fields):
     try:
         c.execute(f"UPDATE jobs SET {clause} WHERE id = ?", [*fields.values(), job_id])
         # Piggyback heartbeat so app.py sees the worker as ONLINE during transcription.
-        c.execute(
-            "UPDATE workers SET last_seen = ?, current_job = ? WHERE id = ?",
-            (now, job_id, WORKER_ID),
-        )
+        c.execute("""
+            INSERT INTO workers (id, host, last_seen, current_job)
+            VALUES (?, ?, ?, ?)
+            ON CONFLICT(id) DO UPDATE SET
+                host = excluded.host,
+                last_seen = excluded.last_seen,
+                current_job = excluded.current_job
+        """, (WORKER_ID, WORKER_HOST, now, job_id))
         c.commit()
     finally:
         c.close()
@@ -257,11 +261,13 @@ def main():
 
     print(f"[{WORKER_ID}] worker ready  host={WORKER_HOST}  db={DB_PATH}")
 
+    _heartbeat()
     while _running:
         job = _claim()
         if job:
             _process(job)
         else:
+            _heartbeat()
             time.sleep(POLL_SECS)
 
     with _conn() as c:

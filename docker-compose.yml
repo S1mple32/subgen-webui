@@ -2,6 +2,8 @@ services:
 
   web:
     build: .
+    environment:
+      - DB_PATH=/data/jobs.db
     command: uvicorn app:app --host 0.0.0.0 --port 8000
     ports:
       - "8000:8000"
@@ -9,7 +11,7 @@ services:
       - uploads:/app/uploads
       - outputs:/app/outputs
       - models:/app/models
-      - db:/app
+      - db:/data
       # mount your media folders here for library scanning, e.g.:
       # - /path/to/movies:/media/movies
       # - /path/to/shows:/media/shows
@@ -24,11 +26,12 @@ services:
     environment:
       - WORKER_ID=worker-1
       - HOSTNAME=worker-1
+      - DB_PATH=/data/jobs.db
     volumes:
       - uploads:/app/uploads
       - outputs:/app/outputs
       - models:/app/models
-      - db:/app
+      - db:/data
       # same media mounts as web if using libraries
     restart: unless-stopped
 
@@ -38,11 +41,12 @@ services:
     environment:
       - WORKER_ID=worker-2
       - HOSTNAME=worker-2
+      - DB_PATH=/data/jobs.db
     volumes:
       - uploads:/app/uploads
       - outputs:/app/outputs
       - models:/app/models
-      - db:/app
+      - db:/data
     restart: unless-stopped
 
 volumes:
