@@ -1,18 +1,29 @@
 # Subgen Web UI
 
-A self-hosted web interface for generating subtitles using [faster-whisper](https://github.com/SYSTRAN/faster-whisper). Upload a video or audio file, pick a model, and get an SRT/VTT/TXT subtitle file back — all from the browser.
+A self-hosted web interface for generating subtitles using [faster-whisper](https://github.com/SYSTRAN/faster-whisper). Upload media or watch a library folder, monitor workers in real time, and send completion events to Jellyfin or another webhook endpoint.
 
-![Workers tab showing live queue with progress, speed, and ETA](https://placehold.co/800x400/161616/6366f1?text=Subgen+Web+UI)
+## Screenshots
+
+### Dashboard
+
+![Subgen Studio black and orange dashboard with upload panel and recent activity](docs/screenshots/dashboard.png)
+
+### Workers and Queue
+
+![Subgen Studio workers page showing worker health and processing queue](docs/screenshots/workers.png)
 
 ## Features
 
+- **Black and orange Studio dashboard** — operational overview, upload panel, recent activity, and worker-aware status
 - **Drag-and-drop upload** — MP4, MKV, AVI, MOV, MP3, WAV, FLAC, and more
 - **Live progress tracking** — real-time speed (×), ETA, and progress bar per job
 - **Multiple workers** — run as many transcription workers as you have resources for, each processes one job at a time
-- **Worker tab** — see every worker's status (idle/busy/offline), live queue position, speed and ETA for each active job
+- **Workers and queue view** — see worker status (idle/busy/offline), live queue position, speed, and ETA
 - **Library scanning** — point Subgen at a folder and it auto-queues new files every 60 seconds
 - **Docker Compose sync** — adding or removing a worker in the UI automatically updates `docker-compose.yml`
 - **Preferred worker** — pin a job or library to a specific worker (e.g. a GPU machine)
+- **Webhook integrations** — trigger a Jellyfin library refresh or send a generic JSON webhook after completion
+- **Robust busy status** — workers remain visible as busy while the Whisper model is loading
 - **Output formats** — SRT, WebVTT, plain text
 - **Models** — tiny · base · small · medium · large-v2 · large-v3
 
@@ -25,7 +36,7 @@ A self-hosted web interface for generating subtitles using [faster-whisper](http
 ```bash
 git clone https://github.com/S1mple32/subgen-webui.git
 cd subgen-webui
-docker compose up -d
+docker compose up -d --build
 ```
 
 Then open **http://localhost:8000**.
@@ -84,6 +95,8 @@ All settings are environment variables:
 | `OUTPUT_DIR` | `outputs/` | Where subtitle files are written |
 | `MODELS_DIR` | `models/` | Where Whisper models are cached |
 | `POLL_INTERVAL` | `2` | Seconds between job queue checks |
+
+Jellyfin and generic webhook integration URLs can be configured from the **Settings** screen.
 
 ---
 
