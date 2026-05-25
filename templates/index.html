@@ -240,6 +240,7 @@
   <button class="nav-btn active" id="nav-home"      onclick="showPage('home')">🏠 Home</button>
   <button class="nav-btn"        id="nav-workers"   onclick="showPage('workers')">🖥️ Workers <span id="nav-workers-badge" class="nav-workers-badge" style="display:none"></span></button>
   <button class="nav-btn"        id="nav-libraries" onclick="showPage('libraries')">📂 Libraries</button>
+  <button class="nav-btn"        id="nav-settings"  onclick="showPage('settings')">⚙️ Settings</button>
 </nav>
 
 <!-- ══════════════════════════ HOME PAGE ══════════════════════════ -->
@@ -457,6 +458,48 @@
   </div>
 </div>
 
+<!-- ══════════════════════════ SETTINGS PAGE ══════════════════════════ -->
+<div class="page" id="page-settings">
+  <div class="container">
+    <div class="page-header">
+      <h1>Settings</h1>
+      <p>Webhooks and integrations</p>
+    </div>
+
+    <div class="card">
+      <div class="card-header"><h2>Jellyfin Integration</h2></div>
+      <div style="padding:20px;display:flex;flex-direction:column;gap:14px">
+        <div>
+          <label class="form-label">Jellyfin URL</label>
+          <input class="form-input" id="set-jf-url" placeholder="http://192.168.1.x:8096">
+          <div style="font-size:11px;color:var(--muted);margin-top:4px">After a transcription finishes, your Jellyfin library will be refreshed automatically.</div>
+        </div>
+        <div>
+          <label class="form-label">API Key</label>
+          <input class="form-input" id="set-jf-key" placeholder="Paste your Jellyfin API key" type="password">
+          <div style="font-size:11px;color:var(--muted);margin-top:4px">Dashboard → Administration → API Keys → + New key</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="card" style="margin-top:16px">
+      <div class="card-header"><h2>Generic Webhook</h2></div>
+      <div style="padding:20px;display:flex;flex-direction:column;gap:14px">
+        <div>
+          <label class="form-label">Webhook URL</label>
+          <input class="form-input" id="set-wh-url" placeholder="https://example.com/webhook">
+          <div style="font-size:11px;color:var(--muted);margin-top:4px">A POST request with JSON <code>{"job_id","filename","status","language"}</code> is sent when a job completes.</div>
+        </div>
+      </div>
+    </div>
+
+    <div style="margin-top:20px;display:flex;gap:10px;align-items:center">
+      <button class="btn-add" onclick="saveSettings()">Save Settings</button>
+      <span id="settings-saved" style="font-size:13px;color:#4ade80;display:none">✓ Saved</span>
+    </div>
+  </div>
+</div>
+
 <script>
 // ── Page navigation ──
 function showPage(name) {
@@ -467,6 +510,7 @@ function showPage(name) {
   if (name === 'libraries') { loadLibraries(); populateWorkerSelects(); }
   if (name === 'workers')   { loadWorkers(); loadQueue(); }
   if (name === 'home')      { loadJobs(); loadWorkers(); }
+  if (name === 'settings')  { loadSettings(); }
 }
 
 // ── Workers ──
@@ -925,6 +969,25 @@ document.getElementById('lib-modal').addEventListener('click', e => { if (e.targ
 // ── Utils ──
 function fmtBytes(b) { if (b<1048576) return (b/1024).toFixed(1)+' KB'; return (b/1048576).toFixed(1)+' MB'; }
 function esc(s) { return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+
+// ── Settings ──
+async function loadSettings() {
+  const s = await fetch('/settings').then(r => r.json());
+  document.getElementById('set-jf-url').value  = s.jellyfin_url     || '';
+  document.getElementById('set-jf-key').value  = s.jellyfin_api_key || '';
+  document.getElementById('set-wh-url').value  = s.webhook_url      || '';
+}
+
+async function saveSettings() {
+  const fd = new FormData();
+  fd.append('jellyfin_url',     document.getElementById('set-jf-url').value.trim());
+  fd.append('jellyfin_api_key', document.getElementById('set-jf-key').value.trim());
+  fd.append('webhook_url',      document.getElementById('set-wh-url').value.trim());
+  await fetch('/settings', { method: 'POST', body: fd });
+  const el = document.getElementById('settings-saved');
+  el.style.display = 'inline';
+  setTimeout(() => el.style.display = 'none', 2500);
+}
 
 // Initial load
 loadJobs();

@@ -4,12 +4,14 @@ Each worker atomically claims queued jobs from the shared SQLite DB,
 processes them with faster-whisper, and writes results back.
 Multiple workers run fully in parallel; no coordination beyond the DB is needed.
 """
+import json
 import os
 import platform
 import signal
 import sqlite3
 import threading
 import time
+import urllib.request
 import uuid
 from datetime import datetime
 from pathlib import Path
@@ -132,6 +134,55 @@ def _claim() -> Optional[dict]:
 
 
 # ---------------------------------------------------------------------------
+# Settings & webhooks
+# ---------------------------------------------------------------------------
+
+def _get_setting(key: str) -> Optional[str]:
+    try:
+        c = sqlite3.connect(str(DB_PATH), timeout=5, check_same_thread=False)
+        row = c.execute("SELECT value FROM settings WHERE key = ?", (key,)).fetchone()
+        c.close()
+        return row[0] if row else None
+    except Exception:
+        return None
+
+
+def _fire_webhooks(job: dict):
+    """Fire Jellyfin refresh and/or generic webhook after a job completes."""
+    jf_url = _get_setting("jellyfin_url")
+    jf_key = _get_setting("jellyfin_api_key")
+    wh_url = _get_setting("webhook_url")
+
+    # Jellyfin — trigger full library refresh
+    if jf_url and jf_key:
+        try:
+            url = f"{jf_url.rstrip('/')}/Library/Refresh"
+            req = urllib.request.Request(url, method="POST")
+            req.add_header("X-Emby-Token", jf_key)
+            req.add_header("Content-Length", "0")
+            urllib.request.urlopen(req, timeout=10)
+            print(f"[{WORKER_ID}] Jellyfin library refresh triggered", flush=True)
+        except Exception as exc:
+            print(f"[{WORKER_ID}] Jellyfin webhook error: {exc}", flush=True)
+
+    # Generic webhook — POST JSON payload
+    if wh_url:
+        try:
+            payload = json.dumps({
+                "job_id":   job["id"],
+                "filename": job["filename"],
+                "status":   "done",
+                "language": job.get("language"),
+            }).encode()
+            req = urllib.request.Request(wh_url, data=payload, method="POST")
+            req.add_header("Content-Type", "application/json")
+            urllib.request.urlopen(req, timeout=10)
+            print(f"[{WORKER_ID}] Webhook fired → {wh_url}", flush=True)
+        except Exception as exc:
+            print(f"[{WORKER_ID}] Webhook error: {exc}", flush=True)
+
+
+# ---------------------------------------------------------------------------
 # Transcription
 # ---------------------------------------------------------------------------
 
@@ -205,7 +256,8 @@ def _process(job: dict):
         _update(job_id, status="done", progress=100,
                 completed_at=datetime.utcnow().isoformat(),
                 output_file=str(out_path), language=detected, speed=None, eta=None)
-        print(f"[{WORKER_ID}] ✓ {job['filename']}")
+        print(f"[{WORKER_ID}] ✓ {job['filename']}", flush=True)
+        _fire_webhooks(job)
 
     except Exception as exc:
         _update(job_id, status="failed", error=str(exc))

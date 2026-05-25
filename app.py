@@ -96,6 +96,12 @@ def _init_db():
                 configured  INTEGER NOT NULL DEFAULT 0
             )
         """)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS settings (
+                key   TEXT PRIMARY KEY,
+                value TEXT
+            )
+        """)
         # Migrate older schemas
         migrations = [
             ("jobs",      "source_path",      "TEXT"),
@@ -599,5 +605,38 @@ async def delete_library(lib_id: str):
         raise HTTPException(404, "Library not found")
     with _db() as conn:
         conn.execute("DELETE FROM libraries WHERE id = ?", (lib_id,))
+        conn.commit()
+    return {"ok": True}
+
+
+# ---------------------------------------------------------------------------
+# Settings
+# ---------------------------------------------------------------------------
+
+@app.get("/settings")
+async def get_settings():
+    with _db() as conn:
+        rows = conn.execute("SELECT key, value FROM settings").fetchall()
+    return {r["key"]: r["value"] for r in rows}
+
+
+@app.post("/settings")
+async def save_settings(
+    jellyfin_url:     str = Form(""),
+    jellyfin_api_key: str = Form(""),
+    webhook_url:      str = Form(""),
+):
+    pairs = [
+        ("jellyfin_url",     jellyfin_url.strip()),
+        ("jellyfin_api_key", jellyfin_api_key.strip()),
+        ("webhook_url",      webhook_url.strip()),
+    ]
+    with _db() as conn:
+        for key, value in pairs:
+            conn.execute(
+                "INSERT INTO settings (key, value) VALUES (?, ?)"
+                " ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+                (key, value),
+            )
         conn.commit()
     return {"ok": True}
