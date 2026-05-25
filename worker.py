@@ -8,6 +8,7 @@ import os
 import platform
 import signal
 import sqlite3
+import threading
 import time
 import uuid
 from datetime import datetime
@@ -28,6 +29,9 @@ OUTPUT_DIR.mkdir(exist_ok=True)
 MODELS_DIR.mkdir(exist_ok=True)
 
 _running = True
+# Current job ID — updated by main thread, read by heartbeat thread
+_current_job: Optional[str] = None
+_current_job_lock = threading.Lock()
 
 
 def _handle_signal(sig, _frame):
@@ -58,15 +62,28 @@ def _update(job_id: str, **fields):
 
 
 def _heartbeat(current_job: Optional[str] = None):
-    with _conn() as c:
-        c.execute("""
-            INSERT INTO workers (id, host, last_seen, current_job)
-            VALUES (?, ?, ?, ?)
-            ON CONFLICT(id) DO UPDATE SET
-                last_seen   = excluded.last_seen,
-                current_job = excluded.current_job
-        """, (WORKER_ID, WORKER_HOST, datetime.utcnow().isoformat(), current_job))
-        c.commit()
+    try:
+        with _conn() as c:
+            c.execute("""
+                INSERT INTO workers (id, host, last_seen, current_job)
+                VALUES (?, ?, ?, ?)
+                ON CONFLICT(id) DO UPDATE SET
+                    last_seen   = excluded.last_seen,
+                    current_job = excluded.current_job
+            """, (WORKER_ID, WORKER_HOST, datetime.utcnow().isoformat(), current_job))
+            c.commit()
+    except Exception:
+        pass  # Never let a heartbeat failure crash the worker
+
+
+def _heartbeat_loop():
+    """Background thread: heartbeat every 4 s regardless of what the main thread does.
+    This keeps the worker visible in the UI during model loading, transcription, etc."""
+    while _running:
+        with _current_job_lock:
+            job = _current_job
+        _heartbeat(job)
+        time.sleep(4)
 
 
 def _claim() -> Optional[dict]:
@@ -108,10 +125,15 @@ def _claim() -> Optional[dict]:
 # ---------------------------------------------------------------------------
 
 def _process(job: dict):
+    global _current_job
     job_id = job["id"]
     out_format = job.get("out_format") or "srt"
     model_size = job.get("model_size") or "base"
     language   = job.get("language") or "auto"
+
+    # Tell the heartbeat thread which job we're on
+    with _current_job_lock:
+        _current_job = job_id
 
     # Resolve source file — library jobs have source_path; uploads are in UPLOAD_DIR
     source_path = job.get("source_path")
@@ -122,12 +144,16 @@ def _process(job: dict):
         candidates = list(UPLOAD_DIR.glob(f"{job_id}_*"))
         if not candidates:
             _update(job_id, status="failed", error="Source file not found")
+            with _current_job_lock:
+                _current_job = None
             return
         file_path    = candidates[0]
         delete_after = True
 
     if not file_path.exists():
         _update(job_id, status="failed", error=f"File missing: {file_path}")
+        with _current_job_lock:
+            _current_job = None
         return
 
     print(f"[{WORKER_ID}] ▶ {job['filename']}  ({job_id[:8]})")
@@ -136,6 +162,7 @@ def _process(job: dict):
     try:
         duration   = get_duration(file_path)
         lang_arg   = language if language != "auto" else None
+        # Model loading may take minutes on first run — heartbeat thread keeps us alive
         model      = load_model(model_size, str(MODELS_DIR))
 
         segments_gen, info = model.transcribe(
@@ -145,7 +172,6 @@ def _process(job: dict):
         detected  = info.language
         all_segs  = []
         started   = time.monotonic()
-        last_hb   = time.monotonic()
 
         for seg in segments_gen:
             all_segs.append(seg)
@@ -154,10 +180,6 @@ def _process(job: dict):
             speed   = round(seg.end / elapsed, 2) if elapsed > 1 and seg.end > 0 else None
             eta     = max(0, round((duration - seg.end) / speed)) if (speed and duration and pct >= 0) else None
             _update(job_id, progress=pct, language=detected, speed=speed, eta=eta)
-            # Keep heartbeat alive during long transcriptions
-            if time.monotonic() - last_hb > 4:
-                _heartbeat(job_id)
-                last_hb = time.monotonic()
 
         ext      = "txt" if out_format == "txt" else out_format
         out_path = OUTPUT_DIR / f"{job_id}.{ext}"
@@ -181,6 +203,8 @@ def _process(job: dict):
         if delete_after and file_path.exists():
             try: file_path.unlink()
             except Exception: pass
+        with _current_job_lock:
+            _current_job = None
 
 
 # ---------------------------------------------------------------------------
@@ -195,21 +219,16 @@ def main():
         c.execute("PRAGMA synchronous=NORMAL")
 
     print(f"[{WORKER_ID}] worker ready  host={WORKER_HOST}  db={DB_PATH}")
-    _heartbeat()
-    last_hb = time.monotonic()
+
+    # Start background heartbeat thread — fires every 4 s no matter what the
+    # main thread is doing (idle, loading model, transcribing, etc.)
+    hb_thread = threading.Thread(target=_heartbeat_loop, name="heartbeat", daemon=True)
+    hb_thread.start()
 
     while _running:
-        if time.monotonic() - last_hb > 5:
-            _heartbeat()
-            last_hb = time.monotonic()
-
         job = _claim()
         if job:
-            _heartbeat(job["id"])
-            last_hb = time.monotonic()
             _process(job)
-            _heartbeat(None)
-            last_hb = time.monotonic()
         else:
             time.sleep(POLL_SECS)
 
