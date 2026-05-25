@@ -6,6 +6,7 @@ Transcription is handled by worker.py — run one or more workers alongside this
 import asyncio
 import json
 import logging
+import os
 import sqlite3
 import uuid
 from contextlib import asynccontextmanager
@@ -22,7 +23,7 @@ log = logging.getLogger(__name__)
 
 UPLOAD_DIR   = Path("uploads")
 OUTPUT_DIR   = Path("outputs")
-DB_PATH      = Path("jobs.db")
+DB_PATH      = Path(os.getenv("DB_PATH", "jobs.db"))
 COMPOSE_PATH = Path("docker-compose.yml")
 
 VIDEO_EXTENSIONS = {
