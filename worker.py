@@ -45,8 +45,10 @@ signal.signal(signal.SIGTERM, _handle_signal)
 # ---------------------------------------------------------------------------
 
 def _conn() -> sqlite3.Connection:
-    c = sqlite3.connect(DB_PATH, timeout=10)
+    c = sqlite3.connect(DB_PATH, timeout=30)
     c.row_factory = sqlite3.Row
+    c.execute("PRAGMA journal_mode=WAL")
+    c.execute("PRAGMA synchronous=NORMAL")
     return c
 
 

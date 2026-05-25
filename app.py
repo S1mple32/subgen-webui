@@ -40,8 +40,10 @@ for d in [UPLOAD_DIR, OUTPUT_DIR]:
 # ---------------------------------------------------------------------------
 
 def _db() -> sqlite3.Connection:
-    conn = sqlite3.connect(DB_PATH, timeout=10)
+    conn = sqlite3.connect(DB_PATH, timeout=30)
     conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("PRAGMA synchronous=NORMAL")
     return conn
 
 
@@ -79,7 +81,8 @@ def _init_db():
                 preferred_worker TEXT,
                 enabled          INTEGER NOT NULL DEFAULT 1,
                 created_at       TEXT NOT NULL,
-                last_scan        TEXT
+                last_scan        TEXT,
+                last_scan_error  TEXT
             )
         """)
         conn.execute("""
@@ -103,6 +106,7 @@ def _init_db():
             ("workers",   "name",              "TEXT"),
             ("workers",   "configured",        "INTEGER NOT NULL DEFAULT 0"),
             ("libraries", "preferred_worker",  "TEXT"),
+            ("libraries", "last_scan_error",   "TEXT"),
         ]
         for table, col, defn in migrations:
             try:
@@ -160,8 +164,13 @@ def _is_file_queued_or_done(source_path: str) -> bool:
 
 def _scan_library(lib: dict):
     lib_path = Path(lib["path"])
+    now = datetime.utcnow().isoformat()
     if not lib_path.is_dir():
+        _update_library(lib["id"], last_scan=now,
+                        last_scan_error=f"Path not found or not a directory: {lib['path']}")
+        print(f"[scan] library '{lib['name']}': path not found → {lib['path']}")
         return
+    queued = 0
     for f in lib_path.rglob("*"):
         if not f.is_file() or f.suffix.lower() not in VIDEO_EXTENSIONS:
             continue
@@ -175,11 +184,13 @@ def _scan_library(lib: dict):
                 " VALUES (?,?,?,?,?,?,?,?,?,?)",
                 (job_id, f.name, str(f), lib["id"],
                  lib.get("preferred_worker") or None,
-                 "queued", 0, datetime.utcnow().isoformat(),
+                 "queued", 0, now,
                  lib["out_format"], lib["model_size"]),
             )
             conn.commit()
-    _update_library(lib["id"], last_scan=datetime.utcnow().isoformat())
+        queued += 1
+    _update_library(lib["id"], last_scan=now, last_scan_error=None)
+    print(f"[scan] library '{lib['name']}': queued {queued} new file(s)")
 
 
 async def _library_watcher():
