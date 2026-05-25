@@ -47,8 +47,6 @@ signal.signal(signal.SIGTERM, _handle_signal)
 def _conn() -> sqlite3.Connection:
     c = sqlite3.connect(DB_PATH, timeout=30)
     c.row_factory = sqlite3.Row
-    c.execute("PRAGMA journal_mode=WAL")
-    c.execute("PRAGMA synchronous=NORMAL")
     return c
 
 
@@ -190,6 +188,12 @@ def _process(job: dict):
 # ---------------------------------------------------------------------------
 
 def main():
+    # Enable WAL mode once at worker startup — app.py also sets this, but workers
+    # may start before the web container and need WAL for concurrent DB access.
+    with _conn() as c:
+        c.execute("PRAGMA journal_mode=WAL")
+        c.execute("PRAGMA synchronous=NORMAL")
+
     print(f"[{WORKER_ID}] worker ready  host={WORKER_HOST}  db={DB_PATH}")
     _heartbeat()
     last_hb = time.monotonic()

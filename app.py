@@ -42,13 +42,14 @@ for d in [UPLOAD_DIR, OUTPUT_DIR]:
 def _db() -> sqlite3.Connection:
     conn = sqlite3.connect(DB_PATH, timeout=30)
     conn.row_factory = sqlite3.Row
-    conn.execute("PRAGMA journal_mode=WAL")
-    conn.execute("PRAGMA synchronous=NORMAL")
     return conn
 
 
 def _init_db():
     with _db() as conn:
+        # Enable WAL mode once at startup so multiple processes can read/write concurrently
+        conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("PRAGMA synchronous=NORMAL")
         conn.execute("""
             CREATE TABLE IF NOT EXISTS jobs (
                 id                TEXT PRIMARY KEY,
@@ -158,6 +159,14 @@ def _is_file_queued_or_done(source_path: str) -> bool:
         return row is not None
 
 
+def _has_subtitle(video_path: Path) -> bool:
+    """Return True if a subtitle file already exists next to the video."""
+    for ext in (".srt", ".vtt", ".txt"):
+        if video_path.with_suffix(ext).exists():
+            return True
+    return False
+
+
 # ---------------------------------------------------------------------------
 # Library scanner
 # ---------------------------------------------------------------------------
@@ -173,6 +182,8 @@ def _scan_library(lib: dict):
     queued = 0
     for f in lib_path.rglob("*"):
         if not f.is_file() or f.suffix.lower() not in VIDEO_EXTENSIONS:
+            continue
+        if _has_subtitle(f):
             continue
         if _is_file_queued_or_done(str(f)):
             continue
