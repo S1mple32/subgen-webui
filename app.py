@@ -677,9 +677,7 @@ async def delete_library(lib_id: str):
         if not conn.execute("SELECT 1 FROM libraries WHERE id = ?", (lib_id,)).fetchone():
             raise HTTPException(404, "Library not found")
         conn.execute(
-            "UPDATE jobs SET status = 'cancelled', worker_id = NULL,"
-            " progress = 0, speed = NULL, eta = NULL"
-            " WHERE library_id = ? AND status = 'queued'",
+            "DELETE FROM jobs WHERE library_id = ? AND status = 'queued'",
             (lib_id,),
         )
         conn.execute("DELETE FROM libraries WHERE id = ?", (lib_id,))
