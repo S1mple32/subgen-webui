@@ -113,10 +113,13 @@ def _init_db():
             ("jobs",      "preferred_worker",  "TEXT"),
             ("jobs",      "speed",             "REAL"),
             ("jobs",      "eta",               "INTEGER"),
+            ("jobs",      "log_cleared",       "INTEGER NOT NULL DEFAULT 0"),
             ("workers",   "name",              "TEXT"),
             ("workers",   "configured",        "INTEGER NOT NULL DEFAULT 0"),
             ("libraries", "preferred_worker",  "TEXT"),
             ("libraries", "last_scan_error",   "TEXT"),
+            ("libraries", "schedule_time",     "TEXT"),
+            ("libraries", "last_schedule_date", "TEXT"),
         ]
         for table, col, defn in migrations:
             try:
@@ -159,11 +162,12 @@ def _update_library(lib_id: str, **fields):
         conn.commit()
 
 
-def _is_file_queued_or_done(source_path: str) -> bool:
+def _is_file_queued_or_done(source_path: str, library_id: str) -> bool:
     with _db() as conn:
         row = conn.execute(
-            "SELECT id FROM jobs WHERE source_path = ? AND status != 'failed'",
-            (source_path,),
+            "SELECT id FROM jobs WHERE source_path = ? AND library_id = ?"
+            " AND status != 'failed'",
+            (source_path, library_id),
         ).fetchone()
         return row is not None
 
@@ -201,19 +205,19 @@ def _scan_library(lib: dict):
             continue
         if _has_subtitle(f):
             continue
-        if _is_file_queued_or_done(str(f)):
+        if _is_file_queued_or_done(str(f), lib["id"]):
             continue
         job_id = str(uuid.uuid4())
         with _db() as conn:
             inserted = conn.execute(
                 "INSERT INTO jobs (id, filename, source_path, library_id, preferred_worker,"
-                " status, progress, created_at, out_format, model_size)"
-                " SELECT ?,?,?,?,?,?,?,?,?,? FROM libraries"
+                " status, progress, created_at, language, out_format, model_size)"
+                " SELECT ?,?,?,?,?,?,?,?,?,?,? FROM libraries"
                 " WHERE id = ? AND enabled = 1",
                 (job_id, f.name, str(f), lib["id"],
                  lib.get("preferred_worker") or None,
                  "queued", 0, now,
-                 lib["out_format"], lib["model_size"], lib["id"]),
+                 lib["language"], lib["out_format"], lib["model_size"], lib["id"]),
             )
             conn.commit()
         queued += inserted.rowcount
@@ -223,12 +227,21 @@ def _scan_library(lib: dict):
 
 async def _library_watcher():
     while True:
-        await asyncio.sleep(60)
+        await asyncio.sleep(30)
         try:
+            local_now = datetime.now()
+            schedule_time = local_now.strftime("%H:%M")
+            schedule_date = local_now.date().isoformat()
             with _db() as conn:
                 libs = [dict(r) for r in
-                        conn.execute("SELECT * FROM libraries WHERE enabled = 1").fetchall()]
+                        conn.execute(
+                            "SELECT * FROM libraries WHERE enabled = 1"
+                            " AND schedule_time = ?"
+                            " AND COALESCE(last_schedule_date, '') != ?",
+                            (schedule_time, schedule_date),
+                        ).fetchall()]
             for lib in libs:
+                _update_library(lib["id"], last_schedule_date=schedule_date)
                 await asyncio.to_thread(_scan_library, lib)
         except Exception as e:
             print(f"[watcher] {e}")
@@ -346,16 +359,26 @@ async def delete_job(job_id: str):
 
 
 @app.post("/jobs/{job_id}/queue/move")
-async def move_queued_job(job_id: str, direction: str = Form(...)):
+async def move_queued_job(
+    job_id: str, direction: str = Form(...), queue_worker: str = Form("")
+):
     """Move a waiting job within the FIFO queue without affecting active work."""
     if direction not in ("up", "down"):
         raise HTTPException(400, "Direction must be 'up' or 'down'")
 
     with _db() as conn:
         conn.execute("BEGIN IMMEDIATE")
+        worker_filter = ""
+        params = []
+        if queue_worker == "__unassigned__":
+            worker_filter = " AND preferred_worker IS NULL"
+        elif queue_worker:
+            worker_filter = " AND preferred_worker = ?"
+            params.append(queue_worker)
         rows = conn.execute(
             "SELECT id, created_at FROM jobs WHERE status = 'queued'"
-            " ORDER BY created_at, id"
+            f"{worker_filter} ORDER BY created_at, id",
+            params,
         ).fetchall()
         ids = [row["id"] for row in rows]
         if job_id not in ids:
@@ -377,6 +400,28 @@ async def move_queued_job(job_id: str, direction: str = Form(...)):
             )
         conn.commit()
     return {"ok": True}
+
+
+@app.get("/logs")
+async def list_logs():
+    with _db() as conn:
+        rows = conn.execute(
+            "SELECT * FROM jobs WHERE status = 'done'"
+            " AND COALESCE(log_cleared, 0) = 0"
+            " ORDER BY completed_at DESC, created_at DESC"
+        ).fetchall()
+    return [dict(row) for row in rows]
+
+
+@app.delete("/logs")
+async def clear_logs():
+    with _db() as conn:
+        result = conn.execute(
+            "UPDATE jobs SET log_cleared = 1"
+            " WHERE status = 'done' AND COALESCE(log_cleared, 0) = 0"
+        )
+        conn.commit()
+    return {"ok": True, "cleared": result.rowcount}
 
 
 @app.delete("/jobs/{job_id}/queue")
@@ -623,14 +668,17 @@ async def create_library(
     name: str = Form(...), path: str = Form(...),
     model_size: str = Form("base"), language: str = Form("auto"),
     out_format: str = Form("srt"), preferred_worker: str = Form(""),
+    schedule_time: str = Form(""),
 ):
     lib_id = str(uuid.uuid4())
     with _db() as conn:
         conn.execute(
             "INSERT INTO libraries (id, name, path, model_size, language, out_format,"
-            " preferred_worker, enabled, created_at) VALUES (?,?,?,?,?,?,?,?,?)",
+            " preferred_worker, enabled, created_at, schedule_time)"
+            " VALUES (?,?,?,?,?,?,?,?,?,?)",
             (lib_id, name, path, model_size, language, out_format,
-             preferred_worker.strip() or None, 1, datetime.utcnow().isoformat()),
+             preferred_worker.strip() or None, 1, datetime.utcnow().isoformat(),
+             schedule_time.strip() or None),
         )
         conn.commit()
     return {"id": lib_id}
@@ -643,13 +691,15 @@ async def update_library_endpoint(
     model_size: str = Form("base"), language: str = Form("auto"),
     out_format: str = Form("srt"), preferred_worker: str = Form(""),
     enabled: int = Form(1),
+    schedule_time: str = Form(""),
 ):
     if not _get_library(lib_id):
         raise HTTPException(404, "Library not found")
     _update_library(lib_id, name=name, path=path, model_size=model_size,
                     language=language, out_format=out_format,
                     preferred_worker=preferred_worker.strip() or None,
-                    enabled=enabled)
+                    enabled=enabled, schedule_time=schedule_time.strip() or None,
+                    last_schedule_date=None)
     return {"ok": True}
 
 

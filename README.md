@@ -20,7 +20,9 @@ A self-hosted web interface for generating subtitles using [faster-whisper](http
 - **Multiple workers** — run as many transcription workers as you have resources for, each processes one job at a time
 - **Workers and queue view** — see worker status (idle/busy/offline), live queue position, speed, and ETA
 - **Queue controls** — move waiting jobs up or down, or dismiss library items without re-queuing them on the next scan
-- **Library scanning** — point Subgen at a folder and it auto-queues new files every 60 seconds
+- **Worker queue filtering** — inspect and reorder waiting jobs for one worker at a time
+- **Controlled library scanning** — scan manually or set a daily sync time; adding a library does not immediately queue files
+- **Generated subtitle logs** — view and download finished subtitles, or clear the log list without deleting saved outputs
 - **Clean watched folders** — ignores downloader fragment files and clears waiting items when a library is removed
 - **Docker Compose sync** — adding or removing a worker in the UI automatically updates `docker-compose.yml`
 - **Preferred worker** — pin a job or library to a specific worker (e.g. a GPU machine)
