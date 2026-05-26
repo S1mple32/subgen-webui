@@ -23,6 +23,7 @@ A self-hosted web interface for generating subtitles using [faster-whisper](http
 - **Worker queue filtering** — inspect and reorder waiting jobs for one worker at a time
 - **Controlled library scanning** — scan manually or set a daily sync time; adding a library does not immediately queue files
 - **Generated subtitle logs** — view and download finished subtitles, or clear the log list without deleting saved outputs
+- **English translation mode** — choose normal transcription or translate non-English audio into English subtitles
 - **Clean watched folders** — ignores downloader fragment files and clears waiting items when a library is removed
 - **Docker Compose sync** — adding or removing a worker in the UI automatically updates `docker-compose.yml`
 - **Preferred worker** — pin a job or library to a specific worker (e.g. a GPU machine)

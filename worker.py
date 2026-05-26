@@ -163,6 +163,7 @@ def _fire_webhooks(job: dict):
                 "filename": job["filename"],
                 "status":   "done",
                 "language": job.get("language"),
+                "task":     job.get("task") or "transcribe",
             }).encode()
             req = urllib.request.Request(wh_url, data=payload, method="POST")
             req.add_header("Content-Type", "application/json")
@@ -181,6 +182,9 @@ def _process(job: dict):
     out_format = job.get("out_format") or "srt"
     model_size = job.get("model_size") or "base"
     language   = job.get("language") or "auto"
+    task       = job.get("task") or "transcribe"
+    if task not in ("transcribe", "translate"):
+        task = "transcribe"
 
     # Resolve source file — library jobs have source_path; uploads are in UPLOAD_DIR
     source_path = job.get("source_path")
@@ -210,6 +214,7 @@ def _process(job: dict):
 
         segments_gen, info = model.transcribe(
             str(file_path), language=lang_arg,
+            task=task,
             vad_filter=True, word_timestamps=False,
         )
         detected  = info.language

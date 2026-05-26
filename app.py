@@ -68,6 +68,7 @@ def _init_db():
                 output_file       TEXT,
                 error             TEXT,
                 language          TEXT,
+                task              TEXT NOT NULL DEFAULT 'transcribe',
                 out_format        TEXT NOT NULL DEFAULT 'srt',
                 model_size        TEXT NOT NULL DEFAULT 'base',
                 speed             REAL,
@@ -81,6 +82,7 @@ def _init_db():
                 path             TEXT NOT NULL,
                 model_size       TEXT NOT NULL DEFAULT 'base',
                 language         TEXT NOT NULL DEFAULT 'auto',
+                task             TEXT NOT NULL DEFAULT 'transcribe',
                 out_format       TEXT NOT NULL DEFAULT 'srt',
                 preferred_worker TEXT,
                 enabled          INTEGER NOT NULL DEFAULT 1,
@@ -114,12 +116,14 @@ def _init_db():
             ("jobs",      "speed",             "REAL"),
             ("jobs",      "eta",               "INTEGER"),
             ("jobs",      "log_cleared",       "INTEGER NOT NULL DEFAULT 0"),
+            ("jobs",      "task",              "TEXT NOT NULL DEFAULT 'transcribe'"),
             ("workers",   "name",              "TEXT"),
             ("workers",   "configured",        "INTEGER NOT NULL DEFAULT 0"),
             ("libraries", "preferred_worker",  "TEXT"),
             ("libraries", "last_scan_error",   "TEXT"),
             ("libraries", "schedule_time",     "TEXT"),
             ("libraries", "last_schedule_date", "TEXT"),
+            ("libraries", "task",              "TEXT NOT NULL DEFAULT 'transcribe'"),
         ]
         for table, col, defn in migrations:
             try:
@@ -162,12 +166,12 @@ def _update_library(lib_id: str, **fields):
         conn.commit()
 
 
-def _is_file_queued_or_done(source_path: str, library_id: str) -> bool:
+def _is_file_queued_or_done(source_path: str, library_id: str, task: str) -> bool:
     with _db() as conn:
         row = conn.execute(
             "SELECT id FROM jobs WHERE source_path = ? AND library_id = ?"
-            " AND status != 'failed'",
-            (source_path, library_id),
+            " AND COALESCE(task, 'transcribe') = ? AND status != 'failed'",
+            (source_path, library_id, task),
         ).fetchone()
         return row is not None
 
@@ -191,6 +195,7 @@ def _is_transient_media_file(video_path: Path) -> bool:
 
 def _scan_library(lib: dict):
     lib_path = Path(lib["path"])
+    task = lib.get("task") or "transcribe"
     now = datetime.utcnow().isoformat()
     if not lib_path.is_dir():
         _update_library(lib["id"], last_scan=now,
@@ -203,21 +208,21 @@ def _scan_library(lib: dict):
             continue
         if _is_transient_media_file(f):
             continue
-        if _has_subtitle(f):
+        if task == "transcribe" and _has_subtitle(f):
             continue
-        if _is_file_queued_or_done(str(f), lib["id"]):
+        if _is_file_queued_or_done(str(f), lib["id"], task):
             continue
         job_id = str(uuid.uuid4())
         with _db() as conn:
             inserted = conn.execute(
                 "INSERT INTO jobs (id, filename, source_path, library_id, preferred_worker,"
-                " status, progress, created_at, language, out_format, model_size)"
-                " SELECT ?,?,?,?,?,?,?,?,?,?,? FROM libraries"
+                " status, progress, created_at, language, task, out_format, model_size)"
+                " SELECT ?,?,?,?,?,?,?,?,?,?,?,? FROM libraries"
                 " WHERE id = ? AND enabled = 1",
                 (job_id, f.name, str(f), lib["id"],
                  lib.get("preferred_worker") or None,
                  "queued", 0, now,
-                 lib["language"], lib["out_format"], lib["model_size"], lib["id"]),
+                 lib["language"], task, lib["out_format"], lib["model_size"], lib["id"]),
             )
             conn.commit()
         queued += inserted.rowcount
@@ -274,7 +279,10 @@ async def create_job(
     out_format: str = Form("srt"),
     model_size: str = Form("base"),
     preferred_worker: str = Form(""),
+    task: str = Form("transcribe"),
 ):
+    if task not in ("transcribe", "translate"):
+        raise HTTPException(400, "Task must be transcribe or translate")
     job_id      = str(uuid.uuid4())
     upload_path = UPLOAD_DIR / f"{job_id}_{file.filename}"
 
@@ -286,9 +294,10 @@ async def create_job(
     with _db() as conn:
         conn.execute(
             "INSERT INTO jobs (id, filename, preferred_worker, status, progress,"
-            " created_at, out_format, model_size) VALUES (?,?,?,?,?,?,?,?)",
+            " created_at, language, task, out_format, model_size)"
+            " VALUES (?,?,?,?,?,?,?,?,?,?)",
             (job_id, file.filename, pw, "queued", 0,
-             datetime.utcnow().isoformat(), out_format, model_size),
+             datetime.utcnow().isoformat(), language, task, out_format, model_size),
         )
         conn.commit()
 
@@ -669,14 +678,17 @@ async def create_library(
     model_size: str = Form("base"), language: str = Form("auto"),
     out_format: str = Form("srt"), preferred_worker: str = Form(""),
     schedule_time: str = Form(""),
+    task: str = Form("transcribe"),
 ):
+    if task not in ("transcribe", "translate"):
+        raise HTTPException(400, "Task must be transcribe or translate")
     lib_id = str(uuid.uuid4())
     with _db() as conn:
         conn.execute(
-            "INSERT INTO libraries (id, name, path, model_size, language, out_format,"
+            "INSERT INTO libraries (id, name, path, model_size, language, task, out_format,"
             " preferred_worker, enabled, created_at, schedule_time)"
-            " VALUES (?,?,?,?,?,?,?,?,?,?)",
-            (lib_id, name, path, model_size, language, out_format,
+            " VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+            (lib_id, name, path, model_size, language, task, out_format,
              preferred_worker.strip() or None, 1, datetime.utcnow().isoformat(),
              schedule_time.strip() or None),
         )
@@ -692,11 +704,14 @@ async def update_library_endpoint(
     out_format: str = Form("srt"), preferred_worker: str = Form(""),
     enabled: int = Form(1),
     schedule_time: str = Form(""),
+    task: str = Form("transcribe"),
 ):
+    if task not in ("transcribe", "translate"):
+        raise HTTPException(400, "Task must be transcribe or translate")
     if not _get_library(lib_id):
         raise HTTPException(404, "Library not found")
     _update_library(lib_id, name=name, path=path, model_size=model_size,
-                    language=language, out_format=out_format,
+                    language=language, task=task, out_format=out_format,
                     preferred_worker=preferred_worker.strip() or None,
                     enabled=enabled, schedule_time=schedule_time.strip() or None,
                     last_schedule_date=None)

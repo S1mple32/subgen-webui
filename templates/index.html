@@ -366,7 +366,7 @@
 
   .control-bar {
     margin: 0; padding: 25px 28px; display: grid;
-    grid-template-columns: 1.15fr 1fr .82fr 1fr 170px; align-items: end; gap: 18px;
+    grid-template-columns: 1.08fr 1fr 1.18fr .78fr 1fr 170px; align-items: end; gap: 14px;
   }
   .control-bar .settings-grid { display: contents; }
   .field label { color: #828c99; letter-spacing: 1.1px; font-weight: 700; margin-bottom: 10px; }
@@ -527,7 +527,7 @@
           </select>
         </div>
         <div class="field">
-          <label>Language</label>
+          <label>Source Language</label>
           <select id="language">
             <option value="auto">Auto-detect</option>
             <option value="en">English</option><option value="fr">French</option><option value="de">German</option>
@@ -539,6 +539,13 @@
             <option value="cs">Czech</option><option value="ro">Romanian</option><option value="hu">Hungarian</option>
             <option value="uk">Ukrainian</option><option value="vi">Vietnamese</option><option value="hi">Hindi</option>
             <option value="id">Indonesian</option>
+          </select>
+        </div>
+        <div class="field">
+          <label>Mode</label>
+          <select id="task">
+            <option value="transcribe" selected>Transcribe</option>
+            <option value="translate">Translate to English</option>
           </select>
         </div>
         <div class="field">
@@ -653,7 +660,7 @@
     <div class="card" style="border-color:rgba(99,102,241,0.2);background:rgba(99,102,241,0.03)">
       <div style="font-size:13px;color:var(--muted);line-height:1.75">
         <strong style="color:var(--text)">How it works</strong><br>
-        Adding a folder does not queue anything by itself. Use <strong style="color:var(--text)">Scan Now</strong>, or choose an automated daily sync time while adding or editing the library. New files found by a scan are queued with that library's worker and language settings.<br><br>
+        Adding a folder does not queue anything by itself. Use <strong style="color:var(--text)">Scan Now</strong>, or choose an automated daily sync time while adding or editing the library. Set Mode to <strong style="color:var(--text)">Translate to English</strong> to create English subtitles from non-English audio.<br><br>
         <strong style="color:var(--text)">Docker tip:</strong> mount your media folders into the container then add the container paths here.<br>
         <code style="font-size:12px;color:#818cf8">volumes: ["/movies:/media/movies", "/shows:/media/shows"]</code>
       </div>
@@ -706,7 +713,7 @@
         </select>
       </div>
       <div class="modal-field">
-        <label>Language</label>
+        <label>Source Language</label>
         <select id="lib-language">
           <option value="auto">Auto</option><option value="en">English</option>
           <option value="fr">French</option><option value="de">German</option>
@@ -715,6 +722,13 @@
           <option value="ja">Japanese</option><option value="ko">Korean</option>
           <option value="zh">Chinese</option><option value="ar">Arabic</option>
           <option value="tr">Turkish</option><option value="hi">Hindi</option>
+        </select>
+      </div>
+      <div class="modal-field">
+        <label>Mode</label>
+        <select id="lib-task">
+          <option value="transcribe" selected>Transcribe</option>
+          <option value="translate">Translate to English</option>
         </select>
       </div>
       <div class="modal-field">
@@ -773,7 +787,7 @@
         <div>
           <label class="form-label">Webhook URL</label>
           <input class="form-input" id="set-wh-url" placeholder="https://example.com/webhook">
-          <div style="font-size:11px;color:var(--muted);margin-top:4px">A POST request with JSON <code>{"job_id","filename","status","language"}</code> is sent when a job completes.</div>
+          <div style="font-size:11px;color:var(--muted);margin-top:4px">A POST request with JSON <code>{"job_id","filename","status","language","task"}</code> is sent when a job completes.</div>
         </div>
       </div>
     </div>
@@ -971,6 +985,7 @@ function renderQueue(jobs) {
     const pct    = job.progress ?? 0;
     const ind    = pct === -1;
     const lang   = job.language ? ` · ${job.language.toUpperCase()}` : '';
+    const task   = job.task === 'translate' ? ' · EN translation' : ' · transcription';
     const wkr    = job.worker_id
       ? ` · <strong style="color:var(--text)">${esc(job.worker_id)}</strong>`
       : job.preferred_worker ? ` · →${esc(job.preferred_worker)}` : '';
@@ -989,7 +1004,7 @@ function renderQueue(jobs) {
       <div class="queue-pos ${isProc ? 'processing' : ''}">${posLabel}</div>
       <div style="min-width:0">
         <div class="queue-name" title="${esc(job.filename)}">${esc(job.filename)}</div>
-        <div class="queue-meta">${esc(job.model_size)} · ${(job.out_format||'').toUpperCase()}${lang}${wkr}</div>
+        <div class="queue-meta">${esc(job.model_size)} · ${(job.out_format||'').toUpperCase()}${lang}${task}${wkr}</div>
         ${isProc ? `<div class="queue-bar" style="margin-top:7px"><div class="queue-bar-fill${ind?' indeterminate':''}" style="width:${ind?40:pct}%"></div></div>` : ''}
       </div>
       <div class="queue-right">
@@ -1080,6 +1095,7 @@ submitBtn.addEventListener('click', async () => {
   const fd = new FormData();
   fd.append('file', selectedF);
   fd.append('language', document.getElementById('language').value);
+  fd.append('task', document.getElementById('task').value);
   fd.append('out_format', document.getElementById('out-format').value);
   fd.append('model_size', document.getElementById('model-size').value);
   fd.append('preferred_worker', document.getElementById('preferred-worker').value);
@@ -1153,6 +1169,7 @@ function buildJobRow(job, compact = false) {
   const isProcessing = job.status === 'processing';
   const pct = job.progress ?? 0, ind = pct === -1;
   const lang = job.language ? ' · ' + job.language.toUpperCase() : '';
+  const task = job.task === 'translate' ? ' · EN translation' : ' · transcription';
   const wkr  = job.worker_id ? ` · ${esc(job.worker_id)}` : (job.preferred_worker ? ` · →${esc(job.preferred_worker)}` : '');
   const ts   = job.created_at ? new Date(job.created_at + 'Z').toLocaleString() : '';
 
@@ -1168,7 +1185,7 @@ function buildJobRow(job, compact = false) {
   row.innerHTML = `
     <div style="min-width:0">
       <div class="job-name" title="${esc(job.filename)}">${esc(job.filename)}</div>
-      <div class="job-meta">${ts} · ${esc(job.model_size||'')} · ${(job.out_format||'').toUpperCase()}${lang}${wkr}</div>
+      <div class="job-meta">${ts} · ${esc(job.model_size||'')} · ${(job.out_format||'').toUpperCase()}${lang}${task}${wkr}</div>
       ${isProcessing ? speedHtml : ''}
       ${isProcessing ? `<div class="progress-bar"><div class="progress-fill${ind?' indeterminate':''}" style="width:${ind?40:pct}%"></div></div>` : ''}
       ${job.error ? `<div class="error-text">${esc(job.error)}</div>` : ''}
@@ -1266,13 +1283,14 @@ function buildLibCard(lib) {
   div.id = 'lib-' + lib.id;
   const lastScan = lib.last_scan ? new Date(lib.last_scan + 'Z').toLocaleString() : 'Never';
   const langLabel = lib.language === 'auto' ? 'Auto' : lib.language.toUpperCase();
+  const taskLabel = lib.task === 'translate' ? 'Translate to English' : 'Transcribe';
   const wkrLabel  = lib.preferred_worker ? ` · ${esc(lib.preferred_worker)}` : '';
   const scheduleLabel = lib.schedule_time ? ` · Daily sync: ${esc(lib.schedule_time)}` : ' · Manual scan only';
   div.innerHTML = `
     <div>
       <div class="lib-name">${esc(lib.name)}</div>
       <div class="lib-path">${esc(lib.path)}</div>
-      <div class="lib-meta">${esc(lib.model_size)} · ${langLabel} · ${(lib.out_format||'').toUpperCase()}${wkrLabel}${scheduleLabel} · Last scan: ${lastScan}</div>
+      <div class="lib-meta">${esc(lib.model_size)} · ${langLabel} · ${taskLabel} · ${(lib.out_format||'').toUpperCase()}${wkrLabel}${scheduleLabel} · Last scan: ${lastScan}</div>
       ${lib.last_scan_error ? `<div style="font-size:12px;color:var(--red);margin-top:3px">⚠ ${esc(lib.last_scan_error)}</div>` : ''}
     </div>
     <div class="lib-actions">
@@ -1323,6 +1341,7 @@ function editLib(id) {
     document.getElementById('lib-path').value     = lib.path;
     document.getElementById('lib-model').value    = lib.model_size;
     document.getElementById('lib-language').value = lib.language;
+    document.getElementById('lib-task').value     = lib.task || 'transcribe';
     document.getElementById('lib-format').value   = lib.out_format;
     document.getElementById('lib-worker').value   = lib.preferred_worker || '';
     document.getElementById('lib-schedule').value = lib.schedule_time || '';
@@ -1337,6 +1356,7 @@ function openLibraryModal() {
   document.getElementById('lib-path').value     = '';
   document.getElementById('lib-model').value    = 'base';
   document.getElementById('lib-language').value = 'auto';
+  document.getElementById('lib-task').value     = 'transcribe';
   document.getElementById('lib-format').value   = 'srt';
   document.getElementById('lib-worker').value   = '';
   document.getElementById('lib-schedule').value = '';
@@ -1353,6 +1373,7 @@ async function saveLibrary() {
   fd.append('name', name); fd.append('path', path);
   fd.append('model_size', document.getElementById('lib-model').value);
   fd.append('language',   document.getElementById('lib-language').value);
+  fd.append('task',       document.getElementById('lib-task').value);
   fd.append('out_format', document.getElementById('lib-format').value);
   fd.append('preferred_worker', document.getElementById('lib-worker').value);
   fd.append('schedule_time', document.getElementById('lib-schedule').value);
