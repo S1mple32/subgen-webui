@@ -7,6 +7,7 @@ import asyncio
 import json
 import logging
 import os
+import re
 import sqlite3
 import uuid
 from contextlib import asynccontextmanager
@@ -31,6 +32,7 @@ VIDEO_EXTENSIONS = {
     ".ts", ".m2ts", ".webm", ".flv", ".3gp",
     ".mp3", ".m4a", ".aac", ".wav", ".flac", ".ogg", ".opus",
 }
+TRANSIENT_MEDIA_RE = re.compile(r"\.(?:f\d+|temp)\.[^.]+$", re.IGNORECASE)
 
 for d in [UPLOAD_DIR, OUTPUT_DIR]:
     d.mkdir(exist_ok=True)
@@ -174,6 +176,11 @@ def _has_subtitle(video_path: Path) -> bool:
     return False
 
 
+def _is_transient_media_file(video_path: Path) -> bool:
+    """Skip downloader fragments and temporary files until the final media exists."""
+    return TRANSIENT_MEDIA_RE.search(video_path.name) is not None
+
+
 # ---------------------------------------------------------------------------
 # Library scanner
 # ---------------------------------------------------------------------------
@@ -190,23 +197,26 @@ def _scan_library(lib: dict):
     for f in lib_path.rglob("*"):
         if not f.is_file() or f.suffix.lower() not in VIDEO_EXTENSIONS:
             continue
+        if _is_transient_media_file(f):
+            continue
         if _has_subtitle(f):
             continue
         if _is_file_queued_or_done(str(f)):
             continue
         job_id = str(uuid.uuid4())
         with _db() as conn:
-            conn.execute(
+            inserted = conn.execute(
                 "INSERT INTO jobs (id, filename, source_path, library_id, preferred_worker,"
                 " status, progress, created_at, out_format, model_size)"
-                " VALUES (?,?,?,?,?,?,?,?,?,?)",
+                " SELECT ?,?,?,?,?,?,?,?,?,? FROM libraries"
+                " WHERE id = ? AND enabled = 1",
                 (job_id, f.name, str(f), lib["id"],
                  lib.get("preferred_worker") or None,
                  "queued", 0, now,
-                 lib["out_format"], lib["model_size"]),
+                 lib["out_format"], lib["model_size"], lib["id"]),
             )
             conn.commit()
-        queued += 1
+        queued += inserted.rowcount
     _update_library(lib["id"], last_scan=now, last_scan_error=None)
     print(f"[scan] library '{lib['name']}': queued {queued} new file(s)")
 
@@ -662,9 +672,16 @@ async def scan_library_now(lib_id: str, background_tasks: BackgroundTasks):
 
 @app.delete("/libraries/{lib_id}")
 async def delete_library(lib_id: str):
-    if not _get_library(lib_id):
-        raise HTTPException(404, "Library not found")
     with _db() as conn:
+        conn.execute("BEGIN IMMEDIATE")
+        if not conn.execute("SELECT 1 FROM libraries WHERE id = ?", (lib_id,)).fetchone():
+            raise HTTPException(404, "Library not found")
+        conn.execute(
+            "UPDATE jobs SET status = 'cancelled', worker_id = NULL,"
+            " progress = 0, speed = NULL, eta = NULL"
+            " WHERE library_id = ? AND status = 'queued'",
+            (lib_id,),
+        )
         conn.execute("DELETE FROM libraries WHERE id = ?", (lib_id,))
         conn.commit()
     return {"ok": True}

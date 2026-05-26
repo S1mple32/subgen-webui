@@ -1054,7 +1054,7 @@ async function loadJobs() {
   const jobs = await res.json();
   updateDashboardStats(jobs);
   renderJobs(jobs);
-  jobs.filter(j => j.status === 'queued' || j.status === 'processing')
+  jobs.filter(j => j.status === 'processing')
       .forEach(j => subscribeJob(j.id));
 }
 
@@ -1228,8 +1228,13 @@ async function scanLib(id, btn) {
 
 async function deleteLib(id) {
   if (!confirm('Remove this library?')) return;
-  await fetch('/libraries/' + id, { method: 'DELETE' });
+  const res = await fetch('/libraries/' + id, { method: 'DELETE' });
+  if (!res.ok) {
+    alert('Could not remove this library.');
+    return;
+  }
   loadLibraries();
+  loadJobs();
 }
 
 function editLib(id) {

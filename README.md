@@ -21,6 +21,7 @@ A self-hosted web interface for generating subtitles using [faster-whisper](http
 - **Workers and queue view** — see worker status (idle/busy/offline), live queue position, speed, and ETA
 - **Queue controls** — move waiting jobs up or down, or dismiss library items without re-queuing them on the next scan
 - **Library scanning** — point Subgen at a folder and it auto-queues new files every 60 seconds
+- **Clean watched folders** — ignores downloader fragment files and cancels waiting items when a library is removed
 - **Docker Compose sync** — adding or removing a worker in the UI automatically updates `docker-compose.yml`
 - **Preferred worker** — pin a job or library to a specific worker (e.g. a GPU machine)
 - **Webhook integrations** — trigger a Jellyfin library refresh or send a generic JSON webhook after completion
