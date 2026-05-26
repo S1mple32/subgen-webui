@@ -44,6 +44,39 @@ Then open **http://localhost:8000**.
 
 The default `docker-compose.yml` starts one web server and two workers. To add more workers, use the **Workers** tab in the UI — the compose file is updated automatically.
 
+### Adding More Workers
+
+From the **Workers** screen, click **+ Add Worker** and give the new worker an ID such as `worker-4`. Subgen adds a matching Compose service automatically. If you prefer to add one manually, copy an existing worker service and set a unique `WORKER_ID`:
+
+```yaml
+  worker-4:
+    build: .
+    cpuset: "0-5"  # Optional: share all six CPU cores with existing workers
+    command: python worker.py
+    environment:
+      - WORKER_ID=worker-4
+      - HOSTNAME=worker-4
+      - PYTHONUNBUFFERED=1
+      - DB_PATH=/data/jobs.db
+    volumes:
+      - uploads:/app/uploads
+      - outputs:/app/outputs
+      - models:/app/models
+      - db:/data
+      - /path/to/media:/media:ro
+    restart: unless-stopped
+```
+
+Start just the new worker and confirm that it connects:
+
+```bash
+docker compose up -d --build worker-4
+docker compose ps
+docker compose logs --tail 30 worker-4
+```
+
+Every worker processes one job at a time. On CPU-only systems, extra workers share available cores and can reduce per-job speed when several jobs run at once. The `cpuset` line is optional; omit it to let Docker schedule the worker across available CPUs.
+
 ### Mount your media folders
 
 Edit `docker-compose.yml` and add volume mounts for your media directories:
