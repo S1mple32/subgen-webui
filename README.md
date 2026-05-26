@@ -24,6 +24,7 @@ A self-hosted web interface for generating subtitles using [faster-whisper](http
 - **Controlled library scanning** — scan manually or set a daily sync time; adding a library does not immediately queue files
 - **Generated subtitle logs** — view and download finished subtitles, or clear the log list without deleting saved outputs
 - **English translation mode** — choose normal transcription or translate non-English audio into English subtitles
+- **Jellyfin sidecars** — watched-library outputs are written beside media as language-tagged files such as `Episode.tr.srt` or `Episode.en.srt`
 - **Clean watched folders** — ignores downloader fragment files and clears waiting items when a library is removed
 - **Docker Compose sync** — adding or removing a worker in the UI automatically updates `docker-compose.yml`
 - **Preferred worker** — pin a job or library to a specific worker (e.g. a GPU machine)
@@ -67,7 +68,7 @@ From the **Workers** screen, click **+ Add Worker** and give the new worker an I
       - outputs:/app/outputs
       - models:/app/models
       - db:/data
-      - /path/to/media:/media:ro
+      - /path/to/media:/media
     restart: unless-stopped
 ```
 
@@ -95,6 +96,10 @@ services:
     volumes:
       - /path/to/movies:/media/movies
       - /path/to/shows:/media/shows
+
+Library mounts must be writable if you want Jellyfin-compatible subtitle sidecars
+saved beside the video files. Uploaded files still write their subtitle output to
+the configured output directory.
 ```
 
 Then add them as Libraries in the UI.
@@ -130,7 +135,7 @@ All settings are environment variables:
 | `HOSTNAME` | system hostname | Display name in the UI |
 | `DB_PATH` | `jobs.db` | Path to the SQLite database |
 | `UPLOAD_DIR` | `uploads/` | Where uploaded files are stored |
-| `OUTPUT_DIR` | `outputs/` | Where subtitle files are written |
+| `OUTPUT_DIR` | `outputs/` | Where uploaded-media subtitle files are written; watched-library subtitles are sidecars beside the video |
 | `MODELS_DIR` | `models/` | Where Whisper models are cached |
 | `POLL_INTERVAL` | `2` | Seconds between job queue checks |
 

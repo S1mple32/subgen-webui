@@ -230,7 +230,14 @@ def _process(job: dict):
             _update(job_id, progress=pct, language=detected, speed=speed, eta=eta)
 
         ext      = "txt" if out_format == "txt" else out_format
-        out_path = OUTPUT_DIR / f"{job_id}.{ext}"
+        # Library outputs live beside media so Jellyfin can see sidecar subtitles.
+        if source_path:
+            output_language = "en" if task == "translate" else detected
+            out_path = file_path.with_name(
+                f"{file_path.stem}.{output_language}.{ext}"
+            )
+        else:
+            out_path = OUTPUT_DIR / f"{job_id}.{ext}"
 
         if out_format == "srt":
             out_path.write_text(to_srt(all_segs), encoding="utf-8")
