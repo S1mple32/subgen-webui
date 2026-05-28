@@ -279,7 +279,9 @@ def _process(job: dict):
                 text=True,
                 bufsize=1,
             )
+            started = time.monotonic()
             last_pct = -1
+            last_update = 0.0
             assert proc.stdout is not None
             for line in proc.stdout:
                 print(f"[{WORKER_ID}] {line.rstrip()}", flush=True)
@@ -296,24 +298,28 @@ def _process(job: dict):
                     print(f"[{WORKER_ID}] paused {job['filename']}", flush=True)
                     return
                 pct = None
+                processed = None
                 match = _progress_re.search(line)
                 if match:
                     pct = min(99, max(0, int(match.group(1))))
+                    processed = (duration or 0) * (pct / 100)
                 elif duration:
                     timestamp = _timestamp_seconds(line)
                     if timestamp is not None:
+                        processed = min(duration, max(0, timestamp))
                         pct = min(99, max(0, int((timestamp / duration) * 100)))
 
                 if pct is None:
                     _heartbeat(job_id)
                     continue
-                if pct == last_pct:
+                now = time.monotonic()
+                if pct == last_pct and now - last_update < 10:
                     continue
                 last_pct = pct
-                elapsed = max(1, time.monotonic() - started)
-                processed = (duration or 0) * (pct / 100)
-                speed = round(processed / elapsed, 2) if processed > 0 else None
-                eta = round(((duration or 0) - processed) / speed) if speed else None
+                last_update = now
+                elapsed = max(1, now - started)
+                speed = round(processed / elapsed, 2) if processed and processed > 0 else None
+                eta = round(((duration or 0) - processed) / speed) if speed and duration and processed is not None else None
                 _update(job_id, progress=pct, speed=speed, eta=eta)
 
             rc = proc.wait()
