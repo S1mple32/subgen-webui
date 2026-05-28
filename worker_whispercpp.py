@@ -37,6 +37,7 @@ MODEL_DIR.mkdir(exist_ok=True)
 
 _running = True
 _progress_re = re.compile(r"(\d{1,3})%")
+_timestamp_re = re.compile(r"\[(\d{2}):(\d{2}):(\d{2})(?:\.\d+)?\s+-->")
 
 
 def _handle_signal(_sig, _frame):
@@ -179,6 +180,14 @@ def _duration(path: Path) -> Optional[float]:
         return None
 
 
+def _timestamp_seconds(line: str) -> Optional[float]:
+    match = _timestamp_re.search(line)
+    if not match:
+        return None
+    hours, minutes, seconds = (int(part) for part in match.groups())
+    return hours * 3600 + minutes * 60 + seconds
+
+
 def _model_path(model_size: str) -> Path:
     override = os.getenv("WHISPER_CPP_MODEL")
     if override:
@@ -286,11 +295,18 @@ def _process(job: dict):
                     _heartbeat(None)
                     print(f"[{WORKER_ID}] paused {job['filename']}", flush=True)
                     return
+                pct = None
                 match = _progress_re.search(line)
-                if not match:
+                if match:
+                    pct = min(99, max(0, int(match.group(1))))
+                elif duration:
+                    timestamp = _timestamp_seconds(line)
+                    if timestamp is not None:
+                        pct = min(99, max(0, int((timestamp / duration) * 100)))
+
+                if pct is None:
                     _heartbeat(job_id)
                     continue
-                pct = min(99, max(0, int(match.group(1))))
                 if pct == last_pct:
                     continue
                 last_pct = pct
