@@ -16,7 +16,7 @@ from pathlib import Path
 from typing import AsyncGenerator, Optional
 
 import aiofiles
-from fastapi import BackgroundTasks, FastAPI, File, Form, HTTPException, UploadFile
+from fastapi import BackgroundTasks, Body, FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.responses import FileResponse, HTMLResponse, StreamingResponse
 from ruamel.yaml import YAML
 
@@ -61,6 +61,7 @@ def _init_db():
                 library_id        TEXT,
                 worker_id         TEXT,
                 preferred_worker  TEXT,
+                backend           TEXT NOT NULL DEFAULT 'faster_whisper',
                 status            TEXT NOT NULL DEFAULT 'queued',
                 progress          REAL NOT NULL DEFAULT 0,
                 created_at        TEXT NOT NULL,
@@ -85,6 +86,7 @@ def _init_db():
                 task             TEXT NOT NULL DEFAULT 'transcribe',
                 out_format       TEXT NOT NULL DEFAULT 'srt',
                 preferred_worker TEXT,
+                backend          TEXT NOT NULL DEFAULT 'faster_whisper',
                 enabled          INTEGER NOT NULL DEFAULT 1,
                 created_at       TEXT NOT NULL,
                 last_scan        TEXT,
@@ -98,6 +100,8 @@ def _init_db():
                 host        TEXT,
                 last_seen   TEXT,
                 current_job TEXT,
+                backend     TEXT NOT NULL DEFAULT 'faster_whisper',
+                device      TEXT,
                 configured  INTEGER NOT NULL DEFAULT 0
             )
         """)
@@ -113,13 +117,17 @@ def _init_db():
             ("jobs",      "library_id",        "TEXT"),
             ("jobs",      "worker_id",         "TEXT"),
             ("jobs",      "preferred_worker",  "TEXT"),
+            ("jobs",      "backend",           "TEXT NOT NULL DEFAULT 'faster_whisper'"),
             ("jobs",      "speed",             "REAL"),
             ("jobs",      "eta",               "INTEGER"),
             ("jobs",      "log_cleared",       "INTEGER NOT NULL DEFAULT 0"),
             ("jobs",      "task",              "TEXT NOT NULL DEFAULT 'transcribe'"),
             ("workers",   "name",              "TEXT"),
+            ("workers",   "backend",           "TEXT NOT NULL DEFAULT 'faster_whisper'"),
+            ("workers",   "device",            "TEXT"),
             ("workers",   "configured",        "INTEGER NOT NULL DEFAULT 0"),
             ("libraries", "preferred_worker",  "TEXT"),
+            ("libraries", "backend",           "TEXT NOT NULL DEFAULT 'faster_whisper'"),
             ("libraries", "last_scan_error",   "TEXT"),
             ("libraries", "schedule_time",     "TEXT"),
             ("libraries", "last_schedule_date", "TEXT"),
@@ -149,6 +157,20 @@ def _update_job(job_id: str, **fields):
     with _db() as conn:
         conn.execute(f"UPDATE jobs SET {clause} WHERE id = ?", [*fields.values(), job_id])
         conn.commit()
+
+
+def _delete_job_files(job: dict):
+    if job.get("output_file"):
+        Path(job["output_file"]).unlink(missing_ok=True)
+    if not job.get("source_path"):
+        for candidate in UPLOAD_DIR.glob(f"{job['id']}_*"):
+            candidate.unlink(missing_ok=True)
+
+
+def _get_job_status(job_id: str) -> Optional[str]:
+    with _db() as conn:
+        row = conn.execute("SELECT status FROM jobs WHERE id = ?", (job_id,)).fetchone()
+        return row["status"] if row else None
 
 
 def _get_library(lib_id: str) -> Optional[dict]:
@@ -216,11 +238,12 @@ def _scan_library(lib: dict):
         with _db() as conn:
             inserted = conn.execute(
                 "INSERT INTO jobs (id, filename, source_path, library_id, preferred_worker,"
-                " status, progress, created_at, language, task, out_format, model_size)"
-                " SELECT ?,?,?,?,?,?,?,?,?,?,?,? FROM libraries"
+                " backend, status, progress, created_at, language, task, out_format, model_size)"
+                " SELECT ?,?,?,?,?,?,?,?,?,?,?,?,? FROM libraries"
                 " WHERE id = ? AND enabled = 1",
                 (job_id, f.name, str(f), lib["id"],
                  lib.get("preferred_worker") or None,
+                 lib.get("backend") or "faster_whisper",
                  "queued", 0, now,
                  lib["language"], task, lib["out_format"], lib["model_size"], lib["id"]),
             )
@@ -280,6 +303,7 @@ async def create_job(
     model_size: str = Form("base"),
     preferred_worker: str = Form(""),
     task: str = Form("transcribe"),
+    backend: str = Form("faster_whisper"),
 ):
     if task not in ("transcribe", "translate"):
         raise HTTPException(400, "Task must be transcribe or translate")
@@ -291,12 +315,14 @@ async def create_job(
             await f.write(chunk)
 
     pw = preferred_worker.strip() or None
+    be = backend.strip() or "faster_whisper"
+    if be not in {"faster_whisper", "whispercpp_vulkan"}:
+        raise HTTPException(400, "Unsupported backend")
     with _db() as conn:
         conn.execute(
-            "INSERT INTO jobs (id, filename, preferred_worker, status, progress,"
-            " created_at, language, task, out_format, model_size)"
-            " VALUES (?,?,?,?,?,?,?,?,?,?)",
-            (job_id, file.filename, pw, "queued", 0,
+            "INSERT INTO jobs (id, filename, preferred_worker, backend, status, progress,"
+            " created_at, language, task, out_format, model_size) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+            (job_id, file.filename, pw, be, "queued", 0,
              datetime.utcnow().isoformat(), language, task, out_format, model_size),
         )
         conn.commit()
@@ -311,12 +337,80 @@ async def list_jobs():
         return [dict(r) for r in rows]
 
 
+@app.get("/jobs/current")
+async def list_current_jobs():
+    with _db() as conn:
+        rows = conn.execute("""
+            SELECT * FROM jobs
+            WHERE status IN ('queued', 'processing', 'paused', 'pause_requested')
+            ORDER BY
+              CASE status
+                WHEN 'processing' THEN 0
+                WHEN 'pause_requested' THEN 1
+                WHEN 'queued' THEN 2
+                WHEN 'paused' THEN 3
+                ELSE 4
+              END,
+              created_at
+        """).fetchall()
+        return [dict(r) for r in rows]
+
+
+@app.post("/jobs/bulk-delete")
+async def bulk_delete_jobs(ids: list[str] = Body(..., embed=True)):
+    if not ids:
+        return {"deleted": 0}
+    placeholders = ",".join("?" for _ in ids)
+    with _db() as conn:
+        rows = conn.execute(f"SELECT * FROM jobs WHERE id IN ({placeholders})", ids).fetchall()
+        jobs = [dict(r) for r in rows]
+        deletable = [j for j in jobs if j["status"] not in {"processing", "pause_requested"}]
+        for job in deletable:
+            _delete_job_files(job)
+        if deletable:
+            delete_ids = [j["id"] for j in deletable]
+            delete_placeholders = ",".join("?" for _ in delete_ids)
+            conn.execute(f"DELETE FROM jobs WHERE id IN ({delete_placeholders})", delete_ids)
+            conn.commit()
+    return {"deleted": len(deletable), "skipped": len(jobs) - len(deletable)}
+
+
 @app.get("/jobs/{job_id}")
 async def get_job_endpoint(job_id: str):
     job = _get_job(job_id)
     if not job:
         raise HTTPException(404, "Job not found")
     return job
+
+
+@app.patch("/jobs/{job_id}/pause")
+async def pause_job(job_id: str):
+    job = _get_job(job_id)
+    if not job:
+        raise HTTPException(404, "Job not found")
+    status = job["status"]
+    if status == "queued":
+        _update_job(job_id, status="paused", speed=None, eta=None)
+    elif status == "processing":
+        _update_job(job_id, status="pause_requested", speed=None, eta=None)
+    elif status in {"paused", "pause_requested"}:
+        return {"ok": True, "status": status}
+    else:
+        raise HTTPException(400, f"Cannot pause a {status} job")
+    return {"ok": True, "status": _get_job_status(job_id)}
+
+
+@app.patch("/jobs/{job_id}/resume")
+async def resume_job(job_id: str):
+    job = _get_job(job_id)
+    if not job:
+        raise HTTPException(404, "Job not found")
+    if job["status"] == "pause_requested":
+        raise HTTPException(409, "Worker is still pausing this job")
+    if job["status"] != "paused":
+        raise HTTPException(400, f"Cannot resume a {job['status']} job")
+    _update_job(job_id, status="queued", worker_id=None, progress=0, speed=None, eta=None, error=None)
+    return {"ok": True, "status": "queued"}
 
 
 @app.get("/jobs/{job_id}/progress")
@@ -334,7 +428,7 @@ async def progress_stream(job_id: str):
             if key != last_key:
                 yield f"data: {json.dumps(job)}\n\n"
                 last_key = key
-            if job["status"] in ("done", "failed"):
+            if job["status"] in ("done", "failed", "paused"):
                 break
             await asyncio.sleep(1)
         yield ": done\n\n"
@@ -359,8 +453,9 @@ async def delete_job(job_id: str):
     job = _get_job(job_id)
     if not job:
         raise HTTPException(404, "Job not found")
-    if job.get("output_file"):
-        Path(job["output_file"]).unlink(missing_ok=True)
+    if job["status"] in {"processing", "pause_requested"}:
+        raise HTTPException(409, "Pause active jobs before deleting them")
+    _delete_job_files(job)
     with _db() as conn:
         conn.execute("DELETE FROM jobs WHERE id = ?", (job_id,))
         conn.commit()
@@ -568,6 +663,56 @@ def _compose_add_worker(worker_id: str):
     log.info("compose: added service '%s'", svc_name)
 
 
+def _compose_add_vulkan_worker(worker_id: str):
+    """Append a whisper.cpp/Vulkan GPU worker service to docker-compose.yml."""
+    yml, data = _load_compose()
+    if data is None:
+        return
+
+    services = data.setdefault("services", {})
+    svc_name = worker_id
+    if svc_name in services:
+        return
+
+    from ruamel.yaml.comments import CommentedMap
+    new_svc = CommentedMap({
+        "build": CommentedMap({
+            "context": ".",
+            "dockerfile": "Dockerfile.vulkan",
+        }),
+        "command": "python worker_whispercpp.py",
+        "environment": [
+            f"WORKER_ID={worker_id}",
+            f"HOSTNAME={worker_id}",
+            "WORKER_BACKEND=whispercpp_vulkan",
+            "WORKER_DEVICE=RX 580 / Vulkan",
+            "DB_PATH=/data/jobs.db",
+            "WHISPER_CPP_BIN=/opt/whisper.cpp/build/bin/whisper-cli",
+            "WHISPER_CPP_MODEL_DIR=/models",
+        ],
+        "devices": ["/dev/dri:/dev/dri"],
+        "group_add": ["video", "render"],
+        "volumes": [
+            "uploads:/app/uploads",
+            "outputs:/app/outputs",
+            "models:/models",
+            "db:/data",
+            "/mnt/media:/mnt/media",
+        ],
+        "restart": "unless-stopped",
+    })
+    services[svc_name] = new_svc
+
+    web = services.get("web")
+    if web is not None:
+        deps = web.get("depends_on")
+        if isinstance(deps, list) and svc_name not in deps:
+            deps.append(svc_name)
+
+    _save_compose(yml, data)
+    log.info("compose: added Vulkan service '%s'", svc_name)
+
+
 def _compose_remove_worker(worker_id: str):
     """Remove the worker service for worker_id from docker-compose.yml."""
     yml, data = _load_compose()
@@ -612,7 +757,8 @@ def _worker_status(w: dict) -> str:
 async def list_workers():
     with _db() as conn:
         rows = conn.execute("""
-            SELECT w.id, w.name, w.host, w.last_seen, w.current_job, w.configured,
+            SELECT w.id, w.name, w.host, w.last_seen, w.current_job,
+                   w.backend, w.device, w.configured,
                    j.filename  AS job_filename,
                    j.progress  AS job_progress,
                    j.speed     AS job_speed,
@@ -621,7 +767,7 @@ async def list_workers():
                      -- If the worker's current_job is actively processing, always show BUSY.
                      -- The heartbeat can lag during model download (ctranslate2 holds the GIL
                      -- for minutes), so we never rely on heartbeat freshness for busy workers.
-                     WHEN j.status = 'processing' THEN 'busy'
+                     WHEN j.status IN ('processing', 'pause_requested') THEN 'busy'
                      WHEN w.last_seen IS NULL THEN 'offline'
                      WHEN datetime(w.last_seen) > datetime('now', '-30 seconds')
                           AND w.current_job IS NOT NULL THEN 'busy'
@@ -639,18 +785,30 @@ async def list_workers():
 async def add_worker(
     name: str = Form(...),
     worker_id: str = Form(...),
+    backend: str = Form("faster_whisper"),
 ):
     wid = worker_id.strip()
     if not wid:
         raise HTTPException(400, "worker_id required")
+    be = backend.strip() or "faster_whisper"
+    if be not in {"faster_whisper", "whispercpp_vulkan"}:
+        raise HTTPException(400, "Unsupported backend")
+    device = "RX 580 / Vulkan" if be == "whispercpp_vulkan" else "CPU"
     with _db() as conn:
         conn.execute("""
-            INSERT INTO workers (id, name, configured)
-            VALUES (?, ?, 1)
-            ON CONFLICT(id) DO UPDATE SET name = excluded.name, configured = 1
-        """, (wid, name.strip()))
+            INSERT INTO workers (id, name, backend, device, configured)
+            VALUES (?, ?, ?, ?, 1)
+            ON CONFLICT(id) DO UPDATE SET
+                name = excluded.name,
+                backend = excluded.backend,
+                device = excluded.device,
+                configured = 1
+        """, (wid, name.strip(), be, device))
         conn.commit()
-    await asyncio.to_thread(_compose_add_worker, wid)
+    if be == "whispercpp_vulkan":
+        await asyncio.to_thread(_compose_add_vulkan_worker, wid)
+    else:
+        await asyncio.to_thread(_compose_add_worker, wid)
     return {"id": wid}
 
 
@@ -679,18 +837,22 @@ async def create_library(
     out_format: str = Form("srt"), preferred_worker: str = Form(""),
     schedule_time: str = Form(""),
     task: str = Form("transcribe"),
+    backend: str = Form("faster_whisper"),
 ):
     if task not in ("transcribe", "translate"):
         raise HTTPException(400, "Task must be transcribe or translate")
     lib_id = str(uuid.uuid4())
+    be = backend.strip() or "faster_whisper"
+    if be not in {"faster_whisper", "whispercpp_vulkan"}:
+        raise HTTPException(400, "Unsupported backend")
     with _db() as conn:
         conn.execute(
-            "INSERT INTO libraries (id, name, path, model_size, language, task, out_format,"
-            " preferred_worker, enabled, created_at, schedule_time)"
-            " VALUES (?,?,?,?,?,?,?,?,?,?,?)",
-            (lib_id, name, path, model_size, language, task, out_format,
-             preferred_worker.strip() or None, 1, datetime.utcnow().isoformat(),
-             schedule_time.strip() or None),
+            "INSERT INTO libraries (id, name, path, model_size, language, out_format,"
+            " preferred_worker, backend, enabled, created_at, schedule_time, task)"
+            " VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+            (lib_id, name, path, model_size, language, out_format,
+             preferred_worker.strip() or None, be, 1, datetime.utcnow().isoformat(),
+             schedule_time.strip() or None, task),
         )
         conn.commit()
     return {"id": lib_id}
@@ -702,6 +864,7 @@ async def update_library_endpoint(
     name: str = Form(...), path: str = Form(...),
     model_size: str = Form("base"), language: str = Form("auto"),
     out_format: str = Form("srt"), preferred_worker: str = Form(""),
+    backend: str = Form("faster_whisper"),
     enabled: int = Form(1),
     schedule_time: str = Form(""),
     task: str = Form("transcribe"),
@@ -710,10 +873,15 @@ async def update_library_endpoint(
         raise HTTPException(400, "Task must be transcribe or translate")
     if not _get_library(lib_id):
         raise HTTPException(404, "Library not found")
+    be = backend.strip() or "faster_whisper"
+    if be not in {"faster_whisper", "whispercpp_vulkan"}:
+        raise HTTPException(400, "Unsupported backend")
     _update_library(lib_id, name=name, path=path, model_size=model_size,
                     language=language, task=task, out_format=out_format,
                     preferred_worker=preferred_worker.strip() or None,
-                    enabled=enabled, schedule_time=schedule_time.strip() or None,
+                    backend=be,
+                    enabled=enabled,
+                    schedule_time=schedule_time.strip() or None,
                     last_schedule_date=None)
     return {"ok": True}
 

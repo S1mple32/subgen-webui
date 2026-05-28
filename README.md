@@ -1,6 +1,6 @@
 # Subgen Web UI
 
-A self-hosted web interface for generating subtitles using [faster-whisper](https://github.com/SYSTRAN/faster-whisper). Upload media or watch a library folder, monitor workers in real time, and send completion events to Jellyfin or another webhook endpoint.
+A self-hosted web interface for generating subtitles using [faster-whisper](https://github.com/SYSTRAN/faster-whisper), with an optional whisper.cpp/Vulkan worker for AMD GPUs such as the RX 580. Upload media or watch a library folder, monitor workers in real time, and send completion events to Jellyfin or another webhook endpoint.
 
 ## Screenshots
 
@@ -19,6 +19,8 @@ A self-hosted web interface for generating subtitles using [faster-whisper](http
 - **Live progress tracking** — real-time speed (×), ETA, and progress bar per job
 - **Multiple workers** — run as many transcription workers as you have resources for, each processes one job at a time
 - **Workers and queue view** — see worker status (idle/busy/offline), live queue position, speed, and ETA
+- **Current Jobs tab** — pause, resume, and bulk-delete queued or paused jobs from one place
+- **RX580/Vulkan backend** — route selected jobs to a whisper.cpp Vulkan worker while CPU workers keep using faster-whisper
 - **Queue controls** — move waiting jobs up or down, or dismiss library items without re-queuing them on the next scan
 - **Worker queue filtering** — inspect and reorder waiting jobs for one worker at a time
 - **Controlled library scanning** — scan manually or set a daily sync time; adding a library does not immediately queue files
@@ -47,7 +49,15 @@ docker compose up -d --build
 
 Then open **http://localhost:8000**.
 
-The default `docker-compose.yml` starts one web server and two workers. To add more workers, use the **Workers** tab in the UI — the compose file is updated automatically.
+The default `docker-compose.yml` starts one web server and two CPU workers. To add more workers, use the **Workers** tab in the UI — the compose file is updated automatically.
+
+To build and start the optional RX580/Vulkan worker:
+
+```bash
+docker compose --profile rx580 up -d --build worker-rx580
+```
+
+The Vulkan worker expects `/dev/dri` to be available inside the container and a whisper.cpp model file such as `ggml-base.bin` in the `models` volume mounted at `/models`.
 
 ### Adding More Workers
 
@@ -133,10 +143,16 @@ All settings are environment variables:
 |---|---|---|
 | `WORKER_ID` | random 8-char ID | Unique ID for this worker |
 | `HOSTNAME` | system hostname | Display name in the UI |
+| `WORKER_BACKEND` | `faster_whisper` | Queue backend claimed by the worker (`faster_whisper` or `whispercpp_vulkan`) |
+| `WORKER_DEVICE` | `CPU` | Device label shown in the UI |
 | `DB_PATH` | `jobs.db` | Path to the SQLite database |
 | `UPLOAD_DIR` | `uploads/` | Where uploaded files are stored |
 | `OUTPUT_DIR` | `outputs/` | Where uploaded-media subtitle files are written; watched-library subtitles are sidecars beside the video |
 | `MODELS_DIR` | `models/` | Where Whisper models are cached |
+| `WHISPER_CPP_BIN` | `/opt/whisper.cpp/build/bin/whisper-cli` | whisper.cpp CLI path for the Vulkan worker |
+| `WHISPER_CPP_MODEL_DIR` | `models/` | Directory containing `ggml-*.bin` models for whisper.cpp |
+| `WHISPER_CPP_MODEL` | unset | Optional exact model path for whisper.cpp |
+| `WHISPER_CPP_EXTRA_ARGS` | unset | Extra arguments passed to `whisper-cli` |
 | `POLL_INTERVAL` | `2` | Seconds between job queue checks |
 
 Jellyfin and generic webhook integration URLs can be configured from the **Settings** screen.
@@ -148,15 +164,20 @@ Jellyfin and generic webhook integration URLs can be configured from the **Setti
 ```
 Browser  ──HTTP──▶  app.py (FastAPI)  ──SQLite──▶  worker.py × N
                         │                               │
-                    uploads/                        outputs/
+                    uploads/                 worker_whispercpp.py
+                        │                               │
+                    outputs/                    whisper.cpp/Vulkan
 ```
 
 - **`app.py`** — HTTP server, file uploads, SSE progress streaming, library watcher
 - **`worker.py`** — polls SQLite for queued jobs, runs faster-whisper, writes output files
+- **`worker_whispercpp.py`** — claims `whispercpp_vulkan` jobs and runs whisper.cpp through Vulkan
 - **`transcribe.py`** — shared utilities (model loading, SRT/VTT/TXT formatting)
 - **`jobs.db`** — SQLite database shared between the web server and all workers
 
 Workers claim jobs atomically using `BEGIN IMMEDIATE` transactions — no coordination layer needed, just add more workers and they share the queue automatically.
+
+Pausing a queued job moves it to `paused` immediately. Pausing a running job asks the worker to stop and then marks it `paused`; resuming queues it again, so that job may restart from the beginning.
 
 ---
 

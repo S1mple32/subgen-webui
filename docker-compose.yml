@@ -49,6 +49,36 @@ services:
       - db:/data
     restart: unless-stopped
 
+  worker-rx580:
+    profiles:
+      - rx580
+    build:
+      context: .
+      dockerfile: Dockerfile.vulkan
+    command: python worker_whispercpp.py
+    environment:
+      - WORKER_ID=worker-rx580
+      - HOSTNAME=worker-rx580
+      - WORKER_BACKEND=whispercpp_vulkan
+      - WORKER_DEVICE=RX 580 / Vulkan
+      - DB_PATH=/data/jobs.db
+      - OUTPUT_DIR=/app/outputs
+      - UPLOAD_DIR=/app/uploads
+      - WHISPER_CPP_BIN=/opt/whisper.cpp/build/bin/whisper-cli
+      - WHISPER_CPP_MODEL_DIR=/models
+    devices:
+      - /dev/dri:/dev/dri
+    group_add:
+      - video
+      - render
+    volumes:
+      - uploads:/app/uploads
+      - outputs:/app/outputs
+      - models:/models
+      - db:/data
+      - /mnt/media:/mnt/media
+    restart: unless-stopped
+
 volumes:
   uploads:
   outputs:

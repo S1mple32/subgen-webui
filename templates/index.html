@@ -157,10 +157,14 @@
   .badge-processing { background: rgba(59,130,246,0.15); color: #60a5fa; }
   .badge-done      { background: rgba(34,197,94,0.15); color: #4ade80; }
   .badge-failed    { background: rgba(239,68,68,0.15); color: #f87171; }
+  .badge-paused    { background: rgba(245,158,11,0.15); color: #fbbf24; }
+  .badge-pause_requested { background: rgba(245,158,11,0.15); color: #fbbf24; }
 
   /* ── Job rows ── */
-  #jobs-list, #logs-list { display: flex; flex-direction: column; gap: 8px; }
+  #jobs-list, #logs-list, #current-jobs-list { display: flex; flex-direction: column; gap: 8px; }
   .job-row { background: var(--surface2); border: 1px solid var(--border); border-radius: 8px; padding: 12px 14px; display: grid; grid-template-columns: 1fr auto; gap: 10px; align-items: center; }
+  .job-row.current { grid-template-columns: auto 1fr auto; }
+  .job-check { width: 18px; height: 18px; accent-color: var(--accent); }
   .job-name { font-size: 13px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .job-meta { font-size: 12px; color: var(--muted); margin-top: 2px; }
   .job-actions { display: flex; gap: 6px; align-items: center; flex-shrink: 0; }
@@ -366,7 +370,7 @@
 
   .control-bar {
     margin: 0; padding: 25px 28px; display: grid;
-    grid-template-columns: 1.08fr 1fr 1.18fr .78fr 1fr 170px; align-items: end; gap: 14px;
+    grid-template-columns: 1.08fr 1fr 1.18fr .78fr 1fr 1fr 170px; align-items: end; gap: 14px;
   }
   .control-bar .settings-grid { display: contents; }
   .field label { color: #828c99; letter-spacing: 1.1px; font-weight: 700; margin-bottom: 10px; }
@@ -433,6 +437,10 @@
   <button class="nav-btn active" id="nav-home" onclick="showPage('home')">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 4h6v7H4zM14 4h6v7h-6zM4 15h6v5H4zM14 15h6v5h-6z"/></svg>
     <span>Dashboard</span>
+  </button>
+  <button class="nav-btn" id="nav-current" onclick="showPage('current')">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 5h16M4 12h16M4 19h16"/><path d="M8 5v14"/></svg>
+    <span>Current Jobs</span>
   </button>
   <button class="nav-btn" id="nav-workers" onclick="showPage('workers')">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8M12 16v4"/></svg>
@@ -562,9 +570,39 @@
             <option value="">Any (auto)</option>
           </select>
         </div>
+        <div class="field">
+          <label>Backend</label>
+          <select id="backend" onchange="populateWorkerSelects()">
+            <option value="faster_whisper" selected>CPU</option>
+            <option value="whispercpp_vulkan">RX580 Vulkan</option>
+          </select>
+        </div>
       </div>
       <button class="btn-primary" id="submit-btn" disabled>Start Transcription</button>
       <div id="upload-status" style="display:none;grid-column:1/-1;text-align:center;font-size:13px;color:var(--muted)">Uploading...</div>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════════════════ CURRENT JOBS PAGE ══════════════════════════ -->
+<div class="page inner-page" id="page-current">
+  <div class="container">
+    <div class="page-header">
+      <div><h1>Current Jobs</h1><p>Pause, resume, or bulk-delete active queue items.</p></div>
+      <button class="btn-secondary" onclick="loadCurrentJobs()">Refresh</button>
+    </div>
+    <div class="card">
+      <div class="card-header">
+        <h2>Active Queue <span id="current-jobs-count" style="font-size:11px;color:var(--muted);font-weight:400;margin-left:6px"></span></h2>
+        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+          <label style="display:flex;align-items:center;gap:8px;color:var(--muted);font-size:12px"><input type="checkbox" id="current-select-all" class="job-check" onchange="toggleAllCurrentJobs(this.checked)"> Select all</label>
+          <span id="current-selected-count" style="font-size:12px;color:var(--muted)">0 selected</span>
+          <button class="icon-btn" onclick="bulkPauseJobs()">Pause</button>
+          <button class="icon-btn green" onclick="bulkResumeJobs()">Resume</button>
+          <button class="icon-btn red" onclick="bulkDeleteJobs()">Delete</button>
+        </div>
+      </div>
+      <div id="current-jobs-list"><div class="empty-state">No active jobs</div></div>
     </div>
   </div>
 </div>
@@ -683,6 +721,13 @@
       <input type="text" id="wm-id" placeholder="e.g. worker-3">
       <div class="modal-hint">Must match the <code>WORKER_ID</code> environment variable on the container. A matching service will be added to <code>docker-compose.yml</code> automatically.</div>
     </div>
+    <div class="modal-field">
+      <label>Backend</label>
+      <select id="wm-backend">
+        <option value="faster_whisper" selected>CPU faster-whisper</option>
+        <option value="whispercpp_vulkan">RX580 Vulkan GPU</option>
+      </select>
+    </div>
     <div class="modal-footer">
       <button class="btn-secondary" onclick="closeWorkerModal()">Cancel</button>
       <button class="btn-add" onclick="saveWorker()">Add Worker</button>
@@ -737,6 +782,13 @@
           <option value="srt" selected>SRT</option>
           <option value="vtt">VTT</option>
           <option value="txt">Text</option>
+        </select>
+      </div>
+      <div class="modal-field">
+        <label>Backend</label>
+        <select id="lib-backend" onchange="populateWorkerSelects()">
+          <option value="faster_whisper" selected>CPU</option>
+          <option value="whispercpp_vulkan">RX580 Vulkan</option>
         </select>
       </div>
     </div>
@@ -809,6 +861,7 @@ function showPage(name) {
   if (name === 'libraries') { loadLibraries(); populateWorkerSelects(); }
   if (name === 'workers')   { loadWorkers(); loadQueue(); }
   if (name === 'home')      { loadJobs(); loadWorkers(); }
+  if (name === 'current')   { loadCurrentJobs(); }
   if (name === 'history')   { loadJobs(); }
   if (name === 'logs')      { loadLogs(); }
   if (name === 'settings')  { loadSettings(); }
@@ -893,7 +946,7 @@ function renderWorkers(workers) {
         <span class="w-status-badge ${s}">${s}</span>
         <button class="w-delete" onclick="removeWorker('${w.id}')" title="Remove">✕</button>
       </div>
-      <div class="w-id">${esc(w.id)}</div>
+      <div class="w-id">${esc(w.id)} · ${w.backend === 'whispercpp_vulkan' ? 'RX580 Vulkan' : 'CPU'}${w.device ? ' · ' + esc(w.device) : ''}</div>
       ${body}`;
     grid.appendChild(card);
   });
@@ -906,8 +959,12 @@ function populateWorkerSelects() {
   const makeOpts = (sel) => {
     if (!sel) return;
     const cur = sel.value;
+    const backendSel = sel.id === 'lib-worker'
+      ? document.getElementById('lib-backend')
+      : document.getElementById('backend');
+    const backend = backendSel?.value || 'faster_whisper';
     while (sel.options.length > 1) sel.remove(1);
-    online.forEach(w => {
+    online.filter(w => (w.backend || 'faster_whisper') === backend).forEach(w => {
       const o = document.createElement('option');
       o.value = w.id;
       o.textContent = (w.name || w.host || w.id) + (w.status === 'busy' ? ' (busy)' : '');
@@ -936,6 +993,7 @@ setInterval(() => {
   loadWorkers();
   if (document.getElementById('page-workers').classList.contains('active')) loadQueue();
   if (document.getElementById('page-home').classList.contains('active')) loadJobs();
+  if (document.getElementById('page-current').classList.contains('active')) loadCurrentJobs();
 }, 3000);
 
 // ── Queue ──
@@ -945,7 +1003,7 @@ async function loadQueue() {
     if (!res.ok) return;
     const jobs = await res.json();
     const worker = document.getElementById('queue-worker-filter')?.value || '';
-    const active = jobs.filter(j => j.status === 'queued' || j.status === 'processing');
+    const active = jobs.filter(j => ['queued', 'processing', 'pause_requested', 'paused'].includes(j.status));
     const filtered = worker === '__unassigned__'
       ? active.filter(j => !j.preferred_worker && !j.worker_id)
       : worker ? active.filter(j => (j.worker_id || j.preferred_worker) === worker) : active;
@@ -958,11 +1016,12 @@ function renderQueue(jobs) {
   const badge = document.getElementById('queue-count-badge');
   if (!el) return;
 
-  const processing = jobs.filter(j => j.status === 'processing').length;
+  const processing = jobs.filter(j => j.status === 'processing' || j.status === 'pause_requested').length;
   const queued     = jobs.filter(j => j.status === 'queued').length;
+  const paused     = jobs.filter(j => j.status === 'paused').length;
   if (badge) {
     badge.textContent = jobs.length
-      ? `${processing} processing · ${queued} waiting`
+      ? `${processing} processing · ${queued} waiting · ${paused} paused`
       : '';
   }
 
@@ -981,11 +1040,12 @@ function renderQueue(jobs) {
   let queuePos = 1;
   const waiting = jobs.filter(job => job.status === 'queued');
   jobs.forEach(job => {
-    const isProc = job.status === 'processing';
+    const isProc = job.status === 'processing' || job.status === 'pause_requested';
     const pct    = job.progress ?? 0;
     const ind    = pct === -1;
     const lang   = job.language ? ` · ${job.language.toUpperCase()}` : '';
     const task   = job.task === 'translate' ? ' · EN translation' : ' · transcription';
+    const backend = job.backend === 'whispercpp_vulkan' ? ' · RX580 Vulkan' : ' · CPU';
     const wkr    = job.worker_id
       ? ` · <strong style="color:var(--text)">${esc(job.worker_id)}</strong>`
       : job.preferred_worker ? ` · →${esc(job.preferred_worker)}` : '';
@@ -1004,11 +1064,11 @@ function renderQueue(jobs) {
       <div class="queue-pos ${isProc ? 'processing' : ''}">${posLabel}</div>
       <div style="min-width:0">
         <div class="queue-name" title="${esc(job.filename)}">${esc(job.filename)}</div>
-        <div class="queue-meta">${esc(job.model_size)} · ${(job.out_format||'').toUpperCase()}${lang}${task}${wkr}</div>
+        <div class="queue-meta">${esc(job.model_size)} · ${(job.out_format||'').toUpperCase()}${lang}${task}${backend}${wkr}</div>
         ${isProc ? `<div class="queue-bar" style="margin-top:7px"><div class="queue-bar-fill${ind?' indeterminate':''}" style="width:${ind?40:pct}%"></div></div>` : ''}
       </div>
       <div class="queue-right">
-        <span class="badge badge-${job.status}">${isProc ? Math.round(pct)+'%' : 'queued'}</span>
+        <span class="badge badge-${job.status}">${job.status === 'pause_requested' ? 'pausing' : isProc ? Math.round(pct)+'%' : job.status}</span>
         ${isProc && (spd||eta) ? `<div class="queue-pills">${spd}${eta}</div>` : ''}
         ${!isProc ? `<div class="queue-controls">
           <button class="queue-control" title="Move up" ${queueIndex === 0 ? 'disabled' : ''} onclick="moveQueuedJob('${job.id}', 'up')">↑</button>
@@ -1042,6 +1102,7 @@ async function deleteQueuedJob(id) {
 function openWorkerModal() {
   document.getElementById('wm-name').value = '';
   document.getElementById('wm-id').value   = '';
+  document.getElementById('wm-backend').value = 'faster_whisper';
   document.getElementById('worker-modal').classList.add('open');
   setTimeout(() => document.getElementById('wm-name').focus(), 50);
 }
@@ -1053,6 +1114,7 @@ async function saveWorker() {
   if (!name || !id) { alert('Both name and Worker ID are required.'); return; }
   const fd = new FormData();
   fd.append('name', name); fd.append('worker_id', id);
+  fd.append('backend', document.getElementById('wm-backend').value);
   const res = await fetch('/workers', { method: 'POST', body: fd });
   if (!res.ok) { alert('Failed to add worker.'); return; }
   closeWorkerModal();
@@ -1099,6 +1161,7 @@ submitBtn.addEventListener('click', async () => {
   fd.append('out_format', document.getElementById('out-format').value);
   fd.append('model_size', document.getElementById('model-size').value);
   fd.append('preferred_worker', document.getElementById('preferred-worker').value);
+  fd.append('backend', document.getElementById('backend').value);
   try {
     const res = await fetch('/jobs', { method: 'POST', body: fd });
     if (!res.ok) throw new Error(await res.text());
@@ -1119,7 +1182,7 @@ async function loadJobs() {
   const jobs = await res.json();
   updateDashboardStats(jobs);
   renderJobs(jobs);
-  jobs.filter(j => j.status === 'processing')
+  jobs.filter(j => j.status === 'processing' || j.status === 'pause_requested')
       .forEach(j => subscribeJob(j.id));
 }
 
@@ -1147,8 +1210,8 @@ function renderJobs(jobs) {
 
 function updateDashboardStats(jobs) {
   const completed = jobs.filter(j => j.status === 'done').length;
-  const processing = jobs.filter(j => j.status === 'processing').length;
-  const queued = jobs.filter(j => j.status === 'queued').length;
+  const processing = jobs.filter(j => j.status === 'processing' || j.status === 'pause_requested').length;
+  const queued = jobs.filter(j => j.status === 'queued' || j.status === 'paused').length;
   document.getElementById('stat-done').textContent = completed.toLocaleString();
   document.getElementById('stat-processing').textContent = String(processing).padStart(2, '0');
   document.getElementById('stat-queued').textContent = String(queued).padStart(2, '0');
@@ -1167,9 +1230,12 @@ function buildJobRow(job, compact = false) {
   row.dataset.jobId = job.id;
   const isActive = job.status === 'queued' || job.status === 'processing';
   const isProcessing = job.status === 'processing';
+  const isPausing = job.status === 'pause_requested';
+  const isPaused = job.status === 'paused';
   const pct = job.progress ?? 0, ind = pct === -1;
   const lang = job.language ? ' · ' + job.language.toUpperCase() : '';
   const task = job.task === 'translate' ? ' · EN translation' : ' · transcription';
+  const backend = job.backend === 'whispercpp_vulkan' ? ' · RX580 Vulkan' : ' · CPU';
   const wkr  = job.worker_id ? ` · ${esc(job.worker_id)}` : (job.preferred_worker ? ` · →${esc(job.preferred_worker)}` : '');
   const ts   = job.created_at ? new Date(job.created_at + 'Z').toLocaleString() : '';
 
@@ -1185,13 +1251,15 @@ function buildJobRow(job, compact = false) {
   row.innerHTML = `
     <div style="min-width:0">
       <div class="job-name" title="${esc(job.filename)}">${esc(job.filename)}</div>
-      <div class="job-meta">${ts} · ${esc(job.model_size||'')} · ${(job.out_format||'').toUpperCase()}${lang}${task}${wkr}</div>
-      ${isProcessing ? speedHtml : ''}
-      ${isProcessing ? `<div class="progress-bar"><div class="progress-fill${ind?' indeterminate':''}" style="width:${ind?40:pct}%"></div></div>` : ''}
+      <div class="job-meta">${ts} · ${esc(job.model_size||'')} · ${(job.out_format||'').toUpperCase()}${lang}${task}${backend}${wkr}</div>
+      ${(isProcessing || isPausing) ? speedHtml : ''}
+      ${(isProcessing || isPausing) ? `<div class="progress-bar"><div class="progress-fill${ind?' indeterminate':''}" style="width:${ind?40:pct}%"></div></div>` : ''}
       ${job.error ? `<div class="error-text">${esc(job.error)}</div>` : ''}
     </div>
     <div class="job-actions">
-      <span class="badge badge-${job.status}">${job.status==='processing'?Math.round(pct)+'%':job.status}</span>
+      <span class="badge badge-${job.status}">${job.status==='processing'?Math.round(pct)+'%':(job.status==='pause_requested'?'pausing':job.status)}</span>
+      ${!compact && (isProcessing || job.status==='queued') ? `<button class="icon-btn" onclick="pauseJob('${job.id}')">Pause</button>` : ''}
+      ${!compact && isPaused ? `<button class="icon-btn green" onclick="resumeJob('${job.id}')">Resume</button>` : ''}
       ${!compact && job.status==='done'?`<button class="icon-btn green" onclick="downloadJob('${job.id}')">Download</button>`:''}
       ${!compact ? `<button class="icon-btn red" onclick="deleteJob('${job.id}')">Remove</button>` : ''}
     </div>`;
@@ -1215,7 +1283,7 @@ function updateJobRow(jobId, data) {
       speedEl.innerHTML = s + e;
     }
   });
-  if (status === 'done' || status === 'failed') loadJobs();
+  if (status === 'done' || status === 'failed' || status === 'paused') loadJobs();
 }
 
 function subscribeJob(jobId) {
@@ -1225,7 +1293,7 @@ function subscribeJob(jobId) {
   es.onmessage = e => {
     const data = JSON.parse(e.data);
     updateJobRow(jobId, data);
-    if (data.status === 'done' || data.status === 'failed') { es.close(); delete activeSources[jobId]; }
+    if (data.status === 'done' || data.status === 'failed' || data.status === 'paused') { es.close(); delete activeSources[jobId]; }
   };
   es.onerror = () => { es.close(); delete activeSources[jobId]; };
 }
@@ -1233,9 +1301,113 @@ function subscribeJob(jobId) {
 async function downloadJob(id) { window.location = '/jobs/' + id + '/download'; }
 async function deleteJob(id) {
   if (!confirm('Delete this job?')) return;
-  await fetch('/jobs/' + id, { method: 'DELETE' });
+  const res = await fetch('/jobs/' + id, { method: 'DELETE' });
+  if (!res.ok) alert('Active jobs must be paused before deleting.');
   await loadJobs();
+  if (document.getElementById('page-current').classList.contains('active')) await loadCurrentJobs();
   if (document.getElementById('page-logs').classList.contains('active')) await loadLogs();
+}
+
+async function loadCurrentJobs() {
+  const jobs = await fetch('/jobs/current').then(r => r.json());
+  renderCurrentJobs(jobs);
+  jobs.filter(j => j.status === 'processing' || j.status === 'pause_requested')
+      .forEach(j => subscribeJob(j.id));
+}
+
+function renderCurrentJobs(jobs) {
+  const list = document.getElementById('current-jobs-list');
+  const count = document.getElementById('current-jobs-count');
+  const selectAll = document.getElementById('current-select-all');
+  if (count) count.textContent = jobs.length ? `${jobs.length} job${jobs.length === 1 ? '' : 's'}` : '';
+  if (selectAll) selectAll.checked = false;
+  if (!list) return;
+  if (!jobs.length) {
+    list.innerHTML = '<div class="empty-state">No active jobs</div>';
+    updateCurrentSelection();
+    return;
+  }
+  list.innerHTML = '';
+  jobs.forEach(job => list.appendChild(buildCurrentJobRow(job)));
+  updateCurrentSelection();
+}
+
+function buildCurrentJobRow(job) {
+  const row = buildJobRow(job);
+  row.id = 'current-job-' + job.id;
+  row.classList.add('current');
+  const check = document.createElement('input');
+  check.type = 'checkbox';
+  check.className = 'job-check current-job-check';
+  check.value = job.id;
+  check.addEventListener('change', updateCurrentSelection);
+  row.insertBefore(check, row.firstChild);
+  return row;
+}
+
+function selectedCurrentJobIds() {
+  return [...document.querySelectorAll('.current-job-check:checked')].map(el => el.value);
+}
+
+function updateCurrentSelection() {
+  const checks = [...document.querySelectorAll('.current-job-check')];
+  const selected = checks.filter(el => el.checked).length;
+  const label = document.getElementById('current-selected-count');
+  const selectAll = document.getElementById('current-select-all');
+  if (label) label.textContent = `${selected} selected`;
+  if (selectAll) {
+    selectAll.checked = checks.length > 0 && selected === checks.length;
+    selectAll.indeterminate = selected > 0 && selected < checks.length;
+  }
+}
+
+function toggleAllCurrentJobs(checked) {
+  document.querySelectorAll('.current-job-check').forEach(el => { el.checked = checked; });
+  updateCurrentSelection();
+}
+
+async function pauseJob(id) {
+  const res = await fetch('/jobs/' + id + '/pause', { method: 'PATCH' });
+  if (!res.ok) alert('Could not pause this job.');
+  await loadJobs();
+  if (document.getElementById('page-current').classList.contains('active')) await loadCurrentJobs();
+}
+
+async function resumeJob(id) {
+  const res = await fetch('/jobs/' + id + '/resume', { method: 'PATCH' });
+  if (!res.ok) alert('Could not resume this job yet.');
+  await loadJobs();
+  if (document.getElementById('page-current').classList.contains('active')) await loadCurrentJobs();
+}
+
+async function bulkPauseJobs() {
+  const ids = selectedCurrentJobIds();
+  if (!ids.length) return;
+  await Promise.all(ids.map(id => fetch('/jobs/' + id + '/pause', { method: 'PATCH' })));
+  await loadCurrentJobs();
+  await loadJobs();
+}
+
+async function bulkResumeJobs() {
+  const ids = selectedCurrentJobIds();
+  if (!ids.length) return;
+  await Promise.all(ids.map(id => fetch('/jobs/' + id + '/resume', { method: 'PATCH' })));
+  await loadCurrentJobs();
+  await loadJobs();
+}
+
+async function bulkDeleteJobs() {
+  const ids = selectedCurrentJobIds();
+  if (!ids.length) return;
+  if (!confirm(`Delete ${ids.length} selected job${ids.length === 1 ? '' : 's'}? Processing jobs will be skipped.`)) return;
+  const res = await fetch('/jobs/bulk-delete', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ ids }),
+  });
+  if (!res.ok) alert('Bulk delete failed.');
+  await loadCurrentJobs();
+  await loadJobs();
 }
 
 // ── Generated subtitle logs ──
@@ -1284,13 +1456,14 @@ function buildLibCard(lib) {
   const lastScan = lib.last_scan ? new Date(lib.last_scan + 'Z').toLocaleString() : 'Never';
   const langLabel = lib.language === 'auto' ? 'Auto' : lib.language.toUpperCase();
   const taskLabel = lib.task === 'translate' ? 'Translate to English' : 'Transcribe';
+  const backendLabel = lib.backend === 'whispercpp_vulkan' ? 'RX580 Vulkan' : 'CPU';
   const wkrLabel  = lib.preferred_worker ? ` · ${esc(lib.preferred_worker)}` : '';
   const scheduleLabel = lib.schedule_time ? ` · Daily sync: ${esc(lib.schedule_time)}` : ' · Manual scan only';
   div.innerHTML = `
     <div>
       <div class="lib-name">${esc(lib.name)}</div>
       <div class="lib-path">${esc(lib.path)}</div>
-      <div class="lib-meta">${esc(lib.model_size)} · ${langLabel} · ${taskLabel} · ${(lib.out_format||'').toUpperCase()}${wkrLabel}${scheduleLabel} · Last scan: ${lastScan}</div>
+      <div class="lib-meta">${esc(lib.model_size)} · ${langLabel} · ${taskLabel} · ${backendLabel} · ${(lib.out_format||'').toUpperCase()}${wkrLabel}${scheduleLabel} · Last scan: ${lastScan}</div>
       ${lib.last_scan_error ? `<div style="font-size:12px;color:var(--red);margin-top:3px">⚠ ${esc(lib.last_scan_error)}</div>` : ''}
     </div>
     <div class="lib-actions">
@@ -1343,6 +1516,8 @@ function editLib(id) {
     document.getElementById('lib-language').value = lib.language;
     document.getElementById('lib-task').value     = lib.task || 'transcribe';
     document.getElementById('lib-format').value   = lib.out_format;
+    document.getElementById('lib-backend').value  = lib.backend || 'faster_whisper';
+    populateWorkerSelects();
     document.getElementById('lib-worker').value   = lib.preferred_worker || '';
     document.getElementById('lib-schedule').value = lib.schedule_time || '';
     document.getElementById('lib-modal').classList.add('open');
@@ -1358,6 +1533,7 @@ function openLibraryModal() {
   document.getElementById('lib-language').value = 'auto';
   document.getElementById('lib-task').value     = 'transcribe';
   document.getElementById('lib-format').value   = 'srt';
+  document.getElementById('lib-backend').value  = 'faster_whisper';
   document.getElementById('lib-worker').value   = '';
   document.getElementById('lib-schedule').value = '';
   document.getElementById('lib-modal').classList.add('open');
@@ -1375,6 +1551,7 @@ async function saveLibrary() {
   fd.append('language',   document.getElementById('lib-language').value);
   fd.append('task',       document.getElementById('lib-task').value);
   fd.append('out_format', document.getElementById('lib-format').value);
+  fd.append('backend',    document.getElementById('lib-backend').value);
   fd.append('preferred_worker', document.getElementById('lib-worker').value);
   fd.append('schedule_time', document.getElementById('lib-schedule').value);
   fd.append('enabled', 1);

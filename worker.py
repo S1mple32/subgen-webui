@@ -20,6 +20,8 @@ from transcribe import get_duration, load_model, to_srt, to_vtt, to_txt
 
 WORKER_ID   = os.getenv("WORKER_ID",   str(uuid.uuid4())[:8])
 WORKER_HOST = os.getenv("HOSTNAME",    platform.node() or "worker")
+WORKER_BACKEND = os.getenv("WORKER_BACKEND", "faster_whisper")
+WORKER_DEVICE  = os.getenv("WORKER_DEVICE",  "CPU")
 DB_PATH     = Path(os.getenv("DB_PATH",    "jobs.db"))
 OUTPUT_DIR  = Path(os.getenv("OUTPUT_DIR", "outputs"))
 MODELS_DIR  = Path(os.getenv("MODELS_DIR", "models"))
@@ -60,28 +62,42 @@ def _update(job_id: str, **fields):
         c.execute(f"UPDATE jobs SET {clause} WHERE id = ?", [*fields.values(), job_id])
         # Piggyback heartbeat so app.py sees the worker as ONLINE during transcription.
         c.execute("""
-            INSERT INTO workers (id, host, last_seen, current_job)
-            VALUES (?, ?, ?, ?)
+            INSERT INTO workers (id, host, last_seen, current_job, backend, device)
+            VALUES (?, ?, ?, ?, ?, ?)
             ON CONFLICT(id) DO UPDATE SET
                 host = excluded.host,
                 last_seen = excluded.last_seen,
-                current_job = excluded.current_job
-        """, (WORKER_ID, WORKER_HOST, now, job_id))
+                current_job = excluded.current_job,
+                backend = excluded.backend,
+                device = excluded.device
+        """, (WORKER_ID, WORKER_HOST, now, job_id, WORKER_BACKEND, WORKER_DEVICE))
         c.commit()
     finally:
         c.close()
+
+
+def _status(job_id: str) -> Optional[str]:
+    try:
+        with _conn() as c:
+            row = c.execute("SELECT status FROM jobs WHERE id = ?", (job_id,)).fetchone()
+            return row["status"] if row else None
+    except Exception:
+        return None
 
 
 def _heartbeat(current_job: Optional[str] = None):
     try:
         c = sqlite3.connect(str(DB_PATH), timeout=10, check_same_thread=False)
         c.execute("""
-            INSERT INTO workers (id, host, last_seen, current_job)
-            VALUES (?, ?, ?, ?)
+            INSERT INTO workers (id, host, last_seen, current_job, backend, device)
+            VALUES (?, ?, ?, ?, ?, ?)
             ON CONFLICT(id) DO UPDATE SET
                 last_seen   = excluded.last_seen,
-                current_job = excluded.current_job
-        """, (WORKER_ID, WORKER_HOST, datetime.utcnow().isoformat(), current_job))
+                current_job = excluded.current_job,
+                backend     = excluded.backend,
+                device      = excluded.device
+        """, (WORKER_ID, WORKER_HOST, datetime.utcnow().isoformat(), current_job,
+              WORKER_BACKEND, WORKER_DEVICE))
         c.commit()
         c.close()
     except Exception as exc:
@@ -100,12 +116,13 @@ def _claim() -> Optional[dict]:
         row = c.execute("""
             SELECT * FROM jobs
             WHERE status = 'queued'
+              AND COALESCE(backend, 'faster_whisper') = ?
               AND (preferred_worker IS NULL OR preferred_worker = ?)
             ORDER BY
               CASE WHEN preferred_worker = ? THEN 0 ELSE 1 END,
               created_at
             LIMIT 1
-        """, (WORKER_ID, WORKER_ID)).fetchone()
+        """, (WORKER_BACKEND, WORKER_ID, WORKER_ID)).fetchone()
         if row:
             c.execute(
                 "UPDATE jobs SET status = 'processing', worker_id = ? WHERE id = ?",
@@ -205,6 +222,7 @@ def _process(job: dict):
 
     print(f"[{WORKER_ID}] ▶ {job['filename']}  ({job_id[:8]})")
     _update(job_id, status="processing", progress=0)
+    paused = False
 
     try:
         duration   = get_duration(file_path)
@@ -222,6 +240,12 @@ def _process(job: dict):
         started   = time.monotonic()
 
         for seg in segments_gen:
+            if _status(job_id) == "pause_requested":
+                paused = True
+                _update(job_id, status="paused", worker_id=None, speed=None, eta=None)
+                _heartbeat(None)
+                print(f"[{WORKER_ID}] paused {job['filename']}", flush=True)
+                return
             all_segs.append(seg)
             pct     = min(99.0, seg.end / duration * 100) if duration else -1
             elapsed = time.monotonic() - started
@@ -256,7 +280,7 @@ def _process(job: dict):
         _update(job_id, status="failed", error=str(exc))
         print(f"[{WORKER_ID}] ✗ {job['filename']}: {exc}")
     finally:
-        if delete_after and file_path.exists():
+        if delete_after and not paused and file_path.exists():
             try: file_path.unlink()
             except Exception: pass
 
@@ -272,14 +296,13 @@ def main():
         c.execute("PRAGMA synchronous=NORMAL")
 
     print(f"[{WORKER_ID}] worker ready  host={WORKER_HOST}  db={DB_PATH}")
-
-    _heartbeat()
+    _heartbeat(None)
     while _running:
         job = _claim()
         if job:
             _process(job)
         else:
-            _heartbeat()
+            _heartbeat(None)
             time.sleep(POLL_SECS)
 
     with _conn() as c:
