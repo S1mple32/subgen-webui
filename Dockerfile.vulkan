@@ -7,8 +7,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     ffmpeg \
     git \
     glslc \
+    glslang-tools \
     libvulkan-dev \
     mesa-vulkan-drivers \
+    spirv-headers \
+    spirv-tools \
     vulkan-tools \
     && rm -rf /var/lib/apt/lists/*
 
