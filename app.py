@@ -9,6 +9,7 @@ import logging
 import os
 import re
 import sqlite3
+import time
 import uuid
 from contextlib import asynccontextmanager
 from datetime import datetime
@@ -26,6 +27,7 @@ UPLOAD_DIR   = Path("uploads")
 OUTPUT_DIR   = Path("outputs")
 DB_PATH      = Path(os.getenv("DB_PATH", "jobs.db"))
 COMPOSE_PATH = Path("docker-compose.yml")
+MEDIA_SETTLE_SECONDS = int(os.getenv("MEDIA_SETTLE_SECONDS", "600"))
 
 VIDEO_EXTENSIONS = {
     ".mp4", ".mkv", ".avi", ".mov", ".m4v", ".wmv", ".mpg", ".mpeg",
@@ -219,6 +221,13 @@ def _is_transient_media_file(video_path: Path) -> bool:
     return TRANSIENT_MEDIA_RE.search(video_path.name) is not None
 
 
+def _is_media_still_changing(video_path: Path) -> bool:
+    try:
+        return time.time() - video_path.stat().st_mtime < MEDIA_SETTLE_SECONDS
+    except FileNotFoundError:
+        return True
+
+
 # ---------------------------------------------------------------------------
 # Library scanner
 # ---------------------------------------------------------------------------
@@ -237,6 +246,8 @@ def _scan_library(lib: dict):
         if not f.is_file() or f.suffix.lower() not in VIDEO_EXTENSIONS:
             continue
         if _is_transient_media_file(f):
+            continue
+        if _is_media_still_changing(f):
             continue
         if task == "transcribe" and _has_subtitle(f):
             continue
