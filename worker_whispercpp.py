@@ -12,6 +12,7 @@ import re
 import signal
 import sqlite3
 import subprocess
+import tempfile
 import time
 import urllib.request
 import uuid
@@ -232,63 +233,78 @@ def _process(job: dict):
     started = time.monotonic()
     paused = False
 
-    cmd = [
-        str(WHISPER_BIN),
-        "-m", str(model_path),
-        "-f", str(file_path),
-        "-of", str(prefix),
-        _output_flag(out_format),
-    ]
-    if language != "auto":
-        cmd.extend(["-l", language])
-    if task == "translate":
-        cmd.append("-tr")
-    if EXTRA_ARGS:
-        cmd.extend(EXTRA_ARGS.split())
-
     try:
-        proc = subprocess.Popen(
-            cmd,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-            text=True,
-            bufsize=1,
-        )
-        last_pct = -1
-        assert proc.stdout is not None
-        for line in proc.stdout:
-            print(f"[{WORKER_ID}] {line.rstrip()}", flush=True)
-            if _status(job_id) == "pause_requested":
-                paused = True
-                proc.terminate()
-                try:
-                    proc.wait(timeout=10)
-                except subprocess.TimeoutExpired:
-                    proc.kill()
-                    proc.wait()
-                _update(job_id, status="paused", worker_id=None, speed=None, eta=None)
-                _heartbeat(None)
-                print(f"[{WORKER_ID}] paused {job['filename']}", flush=True)
-                return
-            match = _progress_re.search(line)
-            if not match:
-                _heartbeat(job_id)
-                continue
-            pct = min(99, max(0, int(match.group(1))))
-            if pct == last_pct:
-                continue
-            last_pct = pct
-            elapsed = max(1, time.monotonic() - started)
-            processed = (duration or 0) * (pct / 100)
-            speed = round(processed / elapsed, 2) if processed > 0 else None
-            eta = round(((duration or 0) - processed) / speed) if speed else None
-            _update(job_id, progress=pct, speed=speed, eta=eta)
+        with tempfile.TemporaryDirectory(prefix=f"subgen-{job_id}-") as tmpdir:
+            audio_path = Path(tmpdir) / "audio.wav"
+            ffmpeg_cmd = [
+                "ffmpeg",
+                "-hide_banner", "-loglevel", "error",
+                "-y",
+                "-i", str(file_path),
+                "-vn",
+                "-ac", "1",
+                "-ar", "16000",
+                "-c:a", "pcm_s16le",
+                str(audio_path),
+            ]
+            subprocess.run(ffmpeg_cmd, check=True)
 
-        rc = proc.wait()
-        if rc != 0:
-            raise RuntimeError(f"whisper-cli exited with code {rc}")
-        if not out_path.exists():
-            raise RuntimeError(f"Expected output was not created: {out_path}")
+            cmd = [
+                str(WHISPER_BIN),
+                "-m", str(model_path),
+                "-f", str(audio_path),
+                "-of", str(prefix),
+                _output_flag(out_format),
+            ]
+            if language != "auto":
+                cmd.extend(["-l", language])
+            if task == "translate":
+                cmd.append("-tr")
+            if EXTRA_ARGS:
+                cmd.extend(EXTRA_ARGS.split())
+
+            proc = subprocess.Popen(
+                cmd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
+                bufsize=1,
+            )
+            last_pct = -1
+            assert proc.stdout is not None
+            for line in proc.stdout:
+                print(f"[{WORKER_ID}] {line.rstrip()}", flush=True)
+                if _status(job_id) == "pause_requested":
+                    paused = True
+                    proc.terminate()
+                    try:
+                        proc.wait(timeout=10)
+                    except subprocess.TimeoutExpired:
+                        proc.kill()
+                        proc.wait()
+                    _update(job_id, status="paused", worker_id=None, speed=None, eta=None)
+                    _heartbeat(None)
+                    print(f"[{WORKER_ID}] paused {job['filename']}", flush=True)
+                    return
+                match = _progress_re.search(line)
+                if not match:
+                    _heartbeat(job_id)
+                    continue
+                pct = min(99, max(0, int(match.group(1))))
+                if pct == last_pct:
+                    continue
+                last_pct = pct
+                elapsed = max(1, time.monotonic() - started)
+                processed = (duration or 0) * (pct / 100)
+                speed = round(processed / elapsed, 2) if processed > 0 else None
+                eta = round(((duration or 0) - processed) / speed) if speed else None
+                _update(job_id, progress=pct, speed=speed, eta=eta)
+
+            rc = proc.wait()
+            if rc != 0:
+                raise RuntimeError(f"whisper-cli exited with code {rc}")
+            if not out_path.exists():
+                raise RuntimeError(f"Expected output was not created: {out_path}")
 
         _update(
             job_id,
