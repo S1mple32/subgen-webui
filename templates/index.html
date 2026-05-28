@@ -1302,7 +1302,7 @@ async function downloadJob(id) { window.location = '/jobs/' + id + '/download'; 
 async function deleteJob(id) {
   if (!confirm('Delete this job?')) return;
   const res = await fetch('/jobs/' + id, { method: 'DELETE' });
-  if (!res.ok) alert('Active jobs must be paused before deleting.');
+  if (!res.ok) alert('Jobs still attached to a running worker must finish pausing before deleting.');
   await loadJobs();
   if (document.getElementById('page-current').classList.contains('active')) await loadCurrentJobs();
   if (document.getElementById('page-logs').classList.contains('active')) await loadLogs();
@@ -1399,7 +1399,7 @@ async function bulkResumeJobs() {
 async function bulkDeleteJobs() {
   const ids = selectedCurrentJobIds();
   if (!ids.length) return;
-  if (!confirm(`Delete ${ids.length} selected job${ids.length === 1 ? '' : 's'}? Processing jobs will be skipped.`)) return;
+  if (!confirm(`Delete ${ids.length} selected job${ids.length === 1 ? '' : 's'}? Jobs still attached to a running worker will be skipped.`)) return;
   const res = await fetch('/jobs/bulk-delete', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },

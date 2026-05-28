@@ -167,6 +167,14 @@ def _delete_job_files(job: dict):
             candidate.unlink(missing_ok=True)
 
 
+def _job_is_attached_to_worker(conn: sqlite3.Connection, job_id: str) -> bool:
+    row = conn.execute(
+        "SELECT 1 FROM workers WHERE current_job = ? LIMIT 1",
+        (job_id,),
+    ).fetchone()
+    return row is not None
+
+
 def _get_job_status(job_id: str) -> Optional[str]:
     with _db() as conn:
         row = conn.execute("SELECT status FROM jobs WHERE id = ?", (job_id,)).fetchone()
@@ -364,7 +372,11 @@ async def bulk_delete_jobs(ids: list[str] = Body(..., embed=True)):
     with _db() as conn:
         rows = conn.execute(f"SELECT * FROM jobs WHERE id IN ({placeholders})", ids).fetchall()
         jobs = [dict(r) for r in rows]
-        deletable = [j for j in jobs if j["status"] not in {"processing", "pause_requested"}]
+        deletable = [
+            j for j in jobs
+            if j["status"] != "processing"
+            and not (j["status"] == "pause_requested" and _job_is_attached_to_worker(conn, j["id"]))
+        ]
         for job in deletable:
             _delete_job_files(job)
         if deletable:
@@ -453,10 +465,12 @@ async def delete_job(job_id: str):
     job = _get_job(job_id)
     if not job:
         raise HTTPException(404, "Job not found")
-    if job["status"] in {"processing", "pause_requested"}:
-        raise HTTPException(409, "Pause active jobs before deleting them")
-    _delete_job_files(job)
     with _db() as conn:
+        if job["status"] == "processing" or (
+            job["status"] == "pause_requested" and _job_is_attached_to_worker(conn, job_id)
+        ):
+            raise HTTPException(409, "Pause active jobs before deleting them")
+        _delete_job_files(job)
         conn.execute("DELETE FROM jobs WHERE id = ?", (job_id,))
         conn.commit()
     return {"ok": True}
